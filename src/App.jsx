@@ -12,16 +12,12 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-
-        {/* Client Routes */}
         <Route path="/" element={<ClientLayout />}>
           <Route index element={<Home />} />
           <Route path="reservation" element={<Reservation />} />
         </Route>
 
-        {/* Admin Routes */}
         <Route path="/admin" element={<AdminLayout />} />
-
       </Routes>
     </BrowserRouter>
   );
