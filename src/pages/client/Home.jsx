@@ -1,9 +1,9 @@
 import { useNavigate } from "react-router-dom";
 import Navbar from "../../components/Navbar";
 import HeroSlider from "../../components/HeroSlider";
-import StatsBar from "../../components/StatsBar";
-import AvailableSlots from "../../components/AvailableSlots";
-import TerrainCard from "../../components/TerrainCard";
+import StatsBar from "../../components/Statsbar";
+import AvailableSlots from "../../components/Availableslots";
+import TerrainCard from "../../components/Terraincard";
 import Footer from "../../components/Footer";
 import { terrains } from "../../api/Terrains";
 
