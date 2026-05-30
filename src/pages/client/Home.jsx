@@ -5,7 +5,7 @@ import StatsBar from "../../components/StatsBar";
 import AvailableSlots from "../../components/AvailableSlots";
 import TerrainCard from "../../components/TerrainCard";
 import Footer from "../../components/Footer";
-import { terrains } from "../../api/terrains";
+import { terrains } from "../../api/Terrains";
 
 const features = [
   { icon: "🌿", title: "عشب اصطناعي الجيل ٥", desc: "أرضية احترافية معتمدة دولياً تقلل الإصابات" },
