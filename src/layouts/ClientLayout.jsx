@@ -1,11 +1,7 @@
 import { Outlet } from "react-router-dom";
 
 function ClientLayout() {
-  return (
-    <div>
-      <Outlet />
-    </div>
-  );
+  return <Outlet />;
 }
 
 export default ClientLayout;
