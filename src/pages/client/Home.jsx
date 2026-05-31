@@ -57,32 +57,73 @@ const Home = () => {
 
       {/* Terrains section */}
       <section className="terrains-section" style={{
-        padding: "80px 80px 100px",
-        background: "#ffffff",
-        direction: "rtl",
-        borderTop: "1px solid #c8e6c0",
-      }}>
-        <div style={{ textAlign: "center", marginBottom: 52 }}>
-          <span style={{
-            display: "inline-block",
-            background: "rgba(45,106,33,0.08)", color: "#2d6a21",
-            fontSize: 11, fontWeight: 700, letterSpacing: 2,
-            padding: "5px 16px", borderRadius: 4,
-            border: "1px solid rgba(45,106,33,0.18)",
-            fontFamily: "'Cairo', sans-serif", marginBottom: 12,
-          }}>ملاعبنا</span>
-          <h2 className="section-title" style={{ fontSize: 40, fontWeight: 900, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", margin: "0 0 10px" }}>
-            اختر ملعبك
-          </h2>
-          <p style={{ color: "#5a8a50", fontSize: 15, fontFamily: "'Cairo', sans-serif" }}>
-            ثلاثة ملاعب بأحجام مختلفة لتناسب جميع الاحتياجات
-          </p>
-        </div>
-        <div className="terrains-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24, maxWidth: 1100, margin: "0 auto" }}>
-          {terrains.map((t) => <TerrainCard key={t.id} terrain={t} />)}
-        </div>
-      </section>
+  padding: "80px 80px 100px",
+  background: "#ffffff",
+  direction: "rtl",
+  borderTop: "1px solid #c8e6c0",
+}}>
+  <style>{`
+    /* ========== MOBILE (max-width: 768px) ========== */
+    @media (max-width: 768px) {
+      .terrains-section { padding: 48px 20px 60px !important; }
+      .terrains-section .section-title { font-size: 26px !important; }
 
+      /* Grid → Horizontal scroll row */
+      .terrains-grid {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        gap: 16px !important;
+        max-width: 100% !important;
+        padding-bottom: 12px !important;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .terrains-grid::-webkit-scrollbar { display: none; }
+
+      /* Each card: fixed width for consistent scroll */
+      .terrains-grid > * {
+        flex: 0 0 280px !important;
+        min-width: 280px !important;
+        max-width: 280px !important;
+      }
+    }
+
+    /* ========== SMALL MOBILE (max-width: 480px) ========== */
+    @media (max-width: 480px) {
+      .terrains-section { padding: 36px 16px 48px !important; }
+      .terrains-section .section-title { fontSize: 22px !important; }
+      .terrains-grid > * {
+        flex: 0 0 260px !important;
+        min-width: 260px !important;
+        max-width: 260px !important;
+      }
+    }
+  `}</style>
+
+  {/* Section Header */}
+  <div style={{ textAlign: "center", marginBottom: 52 }}>
+    <span style={{
+      display: "inline-block",
+      background: "rgba(45,106,33,0.08)", color: "#2d6a21",
+      fontSize: 11, fontWeight: 700, letterSpacing: 2,
+      padding: "5px 16px", borderRadius: 4,
+      border: "1px solid rgba(45,106,33,0.18)",
+      fontFamily: "'Cairo', sans-serif", marginBottom: 12,
+    }}>ملاعبنا</span>
+    <h2 className="section-title" style={{ fontSize: 40, fontWeight: 900, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", margin: "0 0 10px" }}>
+      اختر ملعبك
+    </h2>
+    <p style={{ color: "#5a8a50", fontSize: 15, fontFamily: "'Cairo', sans-serif" }}>
+      ثلاثة ملاعب بأحجام مختلفة لتناسب جميع الاحتياجات
+    </p>
+  </div>
+
+  {/* Terrains Cards - Grid on PC, Horizontal Scroll Row on Mobile */}
+  <div className="terrains-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24, maxWidth: 1100, margin: "0 auto" }}>
+    {terrains.map((t) => <TerrainCard key={t.id} terrain={t} />)}
+  </div>
+</section>
       {/* Features */}
       <section className="features-section" style={{
         padding: "80px 80px",

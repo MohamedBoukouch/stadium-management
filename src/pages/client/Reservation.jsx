@@ -1,5 +1,4 @@
-import { useState } from "react";
-
+import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Navbar from "../../components/Navbar";
 import Footer from "../../components/Footer";
@@ -31,9 +30,29 @@ function formatTimeWithPeriod(hour, minute = 0) {
   return `${displayHour.toString().padStart(2, '0')}:${displayMinute} ${period}`;
 }
 
+/**
+ * Reservation Page - Multi-step booking flow
+ * 
+ * Features:
+ * - 4-step wizard: Terrain → Time → Info → Confirm
+ * - Auth check: redirects to login if not authenticated
+ * - Side summary panel (desktop)
+ * - Fully responsive layout
+ */
+
 export default function Reservation() {
   const location = useLocation();
   const navigate = useNavigate();
+
+  // ── Auth State ──
+  const [user, setUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  // Check auth on mount
+  useEffect(() => {
+    const stored = localStorage.getItem("user");
+    if (stored) setUser(JSON.parse(stored));
+  }, []);
 
   const initTerrain = location.state?.terrainId || terrains[0].id;
   const initSlot = location.state?.slotId || null;
@@ -51,6 +70,81 @@ export default function Reservation() {
   const slots = generateSlots(selectedTerrain);
   const slot = slots.find((s) => s.id === selectedSlot);
 
+  // ── Auth Modal Component ──
+  const AuthModal = () => (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 2000,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)",
+      animation: "fadeIn 0.3s ease",
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: 24,
+        padding: "40px 36px", maxWidth: 400, width: "90%",
+        boxShadow: "0 25px 80px rgba(0,0,0,0.3)",
+        textAlign: "center", direction: "rtl",
+        fontFamily: "'Cairo', sans-serif",
+        animation: "slideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1)",
+      }}>
+        <div style={{
+          width: 64, height: 64, borderRadius: "50%",
+          background: "linear-gradient(135deg, #2d6a21, #5cb844)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          margin: "0 auto 20px", fontSize: 28,
+        }}>🔒</div>
+        <h3 style={{ fontSize: 22, fontWeight: 900, color: "#1a3d14", margin: "0 0 8px" }}>
+          يجب تسجيل الدخول أولاً
+        </h3>
+        <p style={{ fontSize: 14, color: "#5a8a50", margin: "0 0 28px", lineHeight: 1.7 }}>
+          لإتمام حجزك في <strong style={{ color: "#2d6a21" }}>{terrain?.name}</strong>،
+          يرجى تسجيل الدخول أو إنشاء حساب جديد
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            onClick={() => { setShowAuthModal(false); navigate("/login", { state: { from: "/reservation", terrainId: selectedTerrain, slotId: selectedSlot, step: 3 } }); }}
+            style={{
+              width: "100%", padding: "14px", borderRadius: 12,
+              border: "none", background: "linear-gradient(135deg, #2d6a21, #5cb844)",
+              color: "#fff", fontSize: 15, fontWeight: 800,
+              fontFamily: "'Cairo', sans-serif", cursor: "pointer",
+              boxShadow: "0 6px 20px rgba(45,106,33,0.3)",
+              transition: "all 0.2s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+            onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
+          >
+            تسجيل الدخول →
+          </button>
+          <button
+            onClick={() => { setShowAuthModal(false); navigate("/signup", { state: { from: "/reservation", terrainId: selectedTerrain, slotId: selectedSlot, step: 3 } }); }}
+            style={{
+              width: "100%", padding: "14px", borderRadius: 12,
+              border: "1.5px solid #c8e6c0", background: "#fff",
+              color: "#2d6a21", fontSize: 15, fontWeight: 700,
+              fontFamily: "'Cairo', sans-serif", cursor: "pointer",
+              transition: "all 0.2s",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "#5cb844"; e.currentTarget.style.background = "rgba(45,106,33,0.04)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "#c8e6c0"; e.currentTarget.style.background = "#fff"; }}
+          >
+            إنشاء حساب جديد
+          </button>
+          <button
+            onClick={() => setShowAuthModal(false)}
+            style={{
+              width: "100%", padding: "10px", borderRadius: 12,
+              border: "none", background: "none",
+              color: "#a0c090", fontSize: 13,
+              fontFamily: "'Cairo', sans-serif", cursor: "pointer",
+            }}
+          >
+            رجوع للمراجعة
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   const validate = () => {
     const e = {};
     if (!form.name.trim()) e.name = "الاسم مطلوب";
@@ -60,7 +154,13 @@ export default function Reservation() {
     return Object.keys(e).length === 0;
   };
 
+  // ── Handle Submit with Auth Check ──
   const handleSubmit = () => {
+    if (!user) {
+      // Show auth modal instead of alert
+      setShowAuthModal(true);
+      return;
+    }
     if (!validate()) return;
     setReservationCode(generateReservationCode());
     setReservationId(generateReservationId());
@@ -80,6 +180,45 @@ export default function Reservation() {
     return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrData)}`;
   };
 
+  // Share functions
+  const shareText = `تم حجز ملعب ${terrain?.name} بنجاح!\n📅 التاريخ: ${todayLabel()}\n⏰ الوقت: ${slot?.label}\n💰 السعر: ${terrain?.price} درهم\n🔢 كود التأكيد: ${reservationCode}\n📱 رقم الحجز: ${reservationId}`;
+  const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+
+  const handleShare = (platform) => {
+    const text = encodeURIComponent(shareText);
+    const url = encodeURIComponent(shareUrl);
+    let shareLink = "";
+    switch (platform) {
+      case "whatsapp":
+        shareLink = `https://wa.me/?text=${text}`;
+        break;
+      case "facebook":
+        shareLink = `https://www.facebook.com/sharer/sharer.php?u=${url}&quote=${text}`;
+        break;
+      case "instagram":
+        navigator.clipboard.writeText(shareText.replace(/\n/g, "\n"));
+        alert("تم نسخ نص المشاركة! الصقه في Instagram");
+        return;
+      case "twitter":
+        shareLink = `https://twitter.com/intent/tweet?text=${text}&url=${url}`;
+        break;
+      case "copy":
+        navigator.clipboard.writeText(shareText.replace(/\n/g, "\n"));
+        alert("تم نسخ تفاصيل الحجز!");
+        return;
+      default:
+        if (navigator.share) {
+          navigator.share({
+            title: "تأكيد حجز الملعب",
+            text: shareText.replace(/\n/g, "\n"),
+            url: shareUrl,
+          });
+          return;
+        }
+    }
+    if (shareLink) window.open(shareLink, "_blank", "width=600,height=400");
+  };
+
   const inputStyle = (err) => ({
     width: "100%",
     padding: "14px 18px",
@@ -95,40 +234,57 @@ export default function Reservation() {
     direction: "rtl",
   });
 
+  // ── SUCCESS STATE ──
   if (submitted) {
     return (
       <div style={{ background: "#f8fbf7", minHeight: "100vh" }}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap');`}</style>
         <Navbar />
-        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "120px 24px 60px", direction: "rtl" }}>
-          <div style={{ background: "#fff", border: "1px solid #c8e6c0", borderRadius: 24, padding: "60px 48px", textAlign: "center", maxWidth: 520, width: "100%", boxShadow: "0 8px 40px rgba(45,106,33,0.1)" }}>
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "120px 16px 60px", direction: "rtl" }}>
+          <div className="success-card" style={{ background: "#fff", border: "1px solid #c8e6c0", borderRadius: 24, padding: "48px 24px", textAlign: "center", maxWidth: 520, width: "100%", boxShadow: "0 8px 40px rgba(45,106,33,0.1)" }}>
             <div style={{ width: 80, height: 80, borderRadius: "50%", background: "linear-gradient(135deg, #2d6a21, #5cb844)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, margin: "0 auto 24px", boxShadow: "0 8px 24px rgba(45,106,33,0.3)", color: "#fff" }}>✓</div>
-            <h2 style={{ fontSize: 32, fontWeight: 900, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 12 }}>تم تأكيد حجزك!</h2>
-            <p style={{ color: "#5a8a50", fontFamily: "'Cairo', sans-serif", fontSize: 16, lineHeight: 1.8, marginBottom: 32 }}>
+            <h2 style={{ fontSize: 28, fontWeight: 900, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 12 }}>تم تأكيد حجزك!</h2>
+            <p style={{ color: "#5a8a50", fontFamily: "'Cairo', sans-serif", fontSize: 15, lineHeight: 1.8, marginBottom: 28 }}>
               مرحباً {form.name}، تم حجز <strong style={{ color: "#2d6a21" }}>{terrain?.name}</strong> بنجاح للساعة <strong style={{ color: "#2d6a21" }}>{slot?.label}</strong> بتاريخ {todayLabel()}
             </p>
-            <div style={{ background: "#f0f7ee", border: "1.5px solid #c8e6c0", borderRadius: 16, padding: "28px 24px", marginBottom: 32, textAlign: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 16 }}>رمز تأكيد الحجز</div>
-              <div style={{ marginBottom: 20 }}>
-                <img src={generateQRData()} alt="QR Code" style={{ width: 180, height: 180, borderRadius: 12, border: "2px solid #c8e6c0", background: "#fff", padding: 8 }} />
-                <div style={{ fontSize: 11, color: "#5a8a50", fontFamily: "'Cairo', sans-serif", marginTop: 8 }}>اعرض هذا الرمز عند وصولك للملعب</div>
+            <div style={{ background: "#f0f7ee", border: "1.5px solid #c8e6c0", borderRadius: 16, padding: "24px 16px", marginBottom: 28, textAlign: "center" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 14 }}>رمز تأكيد الحجز</div>
+              <div style={{ marginBottom: 16 }}>
+                <img src={generateQRData()} alt="QR Code" style={{ width: 160, height: 160, borderRadius: 12, border: "2px solid #c8e6c0", background: "#fff", padding: 6 }} />
+                <div style={{ fontSize: 11, color: "#5a8a50", fontFamily: "'Cairo', sans-serif", marginTop: 6 }}>اعرض هذا الرمز عند وصولك للملعب</div>
               </div>
-              <div style={{ background: "#fff", border: "2px dashed #5cb844", borderRadius: 12, padding: "16px 24px", display: "inline-block" }}>
+              <div style={{ background: "#fff", border: "2px dashed #5cb844", borderRadius: 12, padding: "14px 20px", display: "inline-block" }}>
                 <div style={{ fontSize: 12, color: "#5a8a50", fontFamily: "'Cairo', sans-serif", marginBottom: 4 }}>كود التأكيد</div>
-                <div style={{ fontSize: 36, fontWeight: 900, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", letterSpacing: 8, direction: "ltr" }}>{reservationCode}</div>
+                <div style={{ fontSize: 32, fontWeight: 900, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", letterSpacing: 6, direction: "ltr" }}>{reservationCode}</div>
               </div>
-              <div style={{ fontSize: 11, color: "#a0c090", fontFamily: "'Cairo', sans-serif", marginTop: 12 }}>رقم الحجز: {reservationId}</div>
+              <div style={{ fontSize: 11, color: "#a0c090", fontFamily: "'Cairo', sans-serif", marginTop: 10 }}>رقم الحجز: {reservationId}</div>
             </div>
-            <div style={{ background: "#f0f7ee", border: "1px solid #c8e6c0", borderRadius: 12, padding: "16px 20px", marginBottom: 32, textAlign: "right" }}>
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 12 }}>شارك حجزك</div>
+              <div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
+                {[
+                  { name: "whatsapp", label: "واتساب", color: "#25D366", icon: "💬" },
+                  { name: "facebook", label: "فيسبوك", color: "#1877F2", icon: "📘" },
+                  { name: "instagram", label: "انستغرام", color: "#E4405F", icon: "📷" },
+                  { name: "twitter", label: "تويتر", color: "#1DA1F2", icon: "🐦" },
+                  { name: "copy", label: "نسخ", color: "#5a8a50", icon: "📋" },
+                ].map(({ name, label, color, icon }) => (
+                  <button key={name} onClick={() => handleShare(name)} style={{ background: color, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 50, fontSize: 12, fontWeight: 700, fontFamily: "'Cairo', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, boxShadow: `0 4px 12px ${color}40`, transition: "all 0.2s" }} onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"} onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}>
+                    <span>{icon}</span><span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ background: "#f0f7ee", border: "1px solid #c8e6c0", borderRadius: 12, padding: "14px 16px", marginBottom: 24, textAlign: "right" }}>
               {[
                 { label: "الملعب", value: terrain?.name },
                 { label: "الوقت", value: slot?.label },
                 { label: "السعر", value: `${terrain?.price} درهم` },
                 { label: "الهاتف", value: form.phone },
               ].map(({ label, value }) => (
-                <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #ddf0d8" }}>
-                  <span style={{ color: "#5a8a50", fontFamily: "'Cairo', sans-serif", fontSize: 14 }}>{label}</span>
-                  <span style={{ color: "#1a3d14", fontFamily: "'Cairo', sans-serif", fontSize: 14, fontWeight: 700 }}>{value}</span>
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #ddf0d8" }}>
+                  <span style={{ color: "#5a8a50", fontFamily: "'Cairo', sans-serif", fontSize: 13 }}>{label}</span>
+                  <span style={{ color: "#1a3d14", fontFamily: "'Cairo', sans-serif", fontSize: 13, fontWeight: 700 }}>{value}</span>
                 </div>
               ))}
             </div>
@@ -145,98 +301,137 @@ export default function Reservation() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap');
 
-        .res-layout { display: grid; grid-template-columns: 1fr 340px; gap: 28px; align-items: start; }
-
-        @media (max-width: 960px) {
-          .res-layout { grid-template-columns: 1fr !important; }
-          .res-summary { order: -1; }
-          .res-container { padding: 100px 24px 60px !important; }
+        /* ========== DESKTOP STYLES ========== */
+        .res-layout { 
+          display: grid; 
+          grid-template-columns: 1fr 340px; 
+          gap: 28px; 
+          align-items: start; 
+        }
+        .res-container { 
+          padding: 110px 60px 80px; 
+          direction: rtl; 
+          max-width: 1200px; 
+          margin: 0 auto; 
+        }
+        .res-stepper {
+          display: flex;
+          align-items: center;
+          margin-bottom: 28px;
+          background: #fff;
+          border: 1px solid #c8e6c0;
+          border-radius: 14px;
+          padding: 14px 24px;
+          overflow-x: auto;
+          box-shadow: 0 2px 8px rgba(45,106,33,0.04);
+        }
+        .res-main {
+          background: #fff;
+          border: 1px solid #c8e6c0;
+          border-radius: 20px;
+          padding: 32px;
+          box-shadow: 0 2px 16px rgba(45,106,33,0.06);
+        }
+        .terrains-picker {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+        }
+        .slots-grid-res {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+          gap: 10px;
+          margin-bottom: 28px;
+        }
+        .form-row {
+          display: flex;
+          gap: 16px;
+        }
+        .form-row > div {
+          flex: 1;
+        }
+        .confirm-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin-bottom: 28px;
+        }
+        .confirm-card {
+          display: flex;
+          gap: 16px;
+          align-items: center;
+          background: #f8fbf7;
+          border: 1px solid #c8e6c0;
+          border-radius: 14px;
+          padding: 16px 20px;
+        }
+        .confirm-card img {
+          width: 72px;
+          height: 50px;
+          object-fit: cover;
+          border-radius: 8px;
+          flex-shrink: 0;
+        }
+        .res-summary > div {
+          background: #fff;
+          border: 1px solid #c8e6c0;
+          border-radius: 20px;
+          padding: 24px;
+          box-shadow: 0 2px 16px rgba(45,106,33,0.06);
+          position: sticky;
+          top: 100px;
         }
 
+        /* ========== TABLET ========== */
+        @media (max-width: 960px) {
+          .res-layout { grid-template-columns: 1fr; }
+          .res-summary { order: -1; }
+          .res-container { padding: 100px 24px 60px; }
+        }
+
+        /* ========== MOBILE (max-width: 600px) ========== */
         @media (max-width: 600px) {
-          .res-container { padding: 90px 0 48px !important; }
-          .step-label { display: none !important; }
-
-          /* ========== STEP 0: TERRAIN CHOICE - SWIPE CARDS 85vw ========== */
-          .terrains-picker { 
-            display: flex !important; 
-            flex-direction: row !important; 
-            overflow-x: auto !important; 
-            gap: 12px !important;
-            padding: 0 16px 12px 16px !important;
-            scroll-snap-type: x mandatory !important;
-            -webkit-overflow-scrolling: touch !important;
-            scroll-padding-left: 16px;
-            scroll-padding-right: 16px;
-          }
+          .res-container { padding: 90px 0 48px 0; max-width: 100%; margin: 0; }
+          .res-container > div:first-child { padding: 0 16px; margin-bottom: 20px; }
+          .res-stepper { margin: 0 16px 20px 16px; border-radius: 12px; padding: 12px 16px; }
+          .step-label { display: none; }
+          .res-layout { display: flex; flex-direction: column; }
+          .res-main-content { order: -1; width: 100%; }
+          .res-summary { order: 0; margin: 16px; width: auto; }
+          .res-summary > div { position: static; border-radius: 16px; }
+          .res-main { border-radius: 0; border-left: none; border-right: none; padding: 24px 0; width: 100%; box-shadow: none; }
+          .res-main > h3, .res-main > p { padding: 0 16px; margin-bottom: 20px; }
+          .res-main > div:last-child { padding: 0 16px; margin-top: 24px; }
+          .terrains-picker { display: flex; flex-direction: row; overflow-x: auto; gap: 12px; padding: 0 16px 12px 16px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scroll-padding-left: 16px; scroll-padding-right: 16px; }
           .terrains-picker::-webkit-scrollbar { display: none; }
-          .terrain-card { 
-            min-width: 85vw !important; 
-            max-width: 85vw !important;
-            flex-shrink: 0 !important; 
-            scroll-snap-align: center !important;
-          }
-          .terrain-card img { height: 200px !important; }
-
-          /* ========== STEP 1: TIME SLOTS - FULL WIDTH, 2 COLS, AM/PM ========== */
-          .slots-grid-res { 
-            grid-template-columns: repeat(2, 1fr) !important; 
-            gap: 10px !important;
-            padding: 0 16px !important;
-          }
-          .slot-btn {
-            padding: 18px 8px !important;
-            font-size: 15px !important;
-            min-height: 64px !important;
-          }
-
-          /* ========== STEP 2: FORM - FULL WIDTH ========== */
-          .form-row { flex-direction: column !important; gap: 18px !important; }
-          .form-row > div { width: 100% !important; }
-
-          /* ========== STEP 3: CONFIRM - FULL WIDTH CARDS ========== */
-          .confirm-card {
-            padding: 14px 16px !important;
-          }
-          .confirm-card img {
-            width: 56px !important;
-            height: 40px !important;
-          }
-
-          /* ========== MOBILE LAYOUT ORDER ========== */
-          .res-layout { display: flex !important; flex-direction: column !important; }
-          .res-stepper-mobile { order: -2 !important; margin: 0 16px 20px !important; }
-          .res-main-content { order: -1 !important; }
-          .res-summary { order: 0 !important; margin: 0 16px !important; }
-
-          /* Remove side borders on mobile for full-width feel */
-          .res-main { 
-            border-radius: 0 !important; 
-            border-left: none !important; 
-            border-right: none !important;
-            padding: 24px 0 !important;
-          }
-          .res-main > h3,
-          .res-main > p,
-          .res-main > .terrains-picker,
-          .res-main > .slots-grid-res,
-          .res-main > div > button,
-          .res-main > .confirm-stack {
-            padding-left: 16px !important;
-            padding-right: 16px !important;
-          }
+          .terrain-card { min-width: 85vw; max-width: 85vw; flex-shrink: 0; scroll-snap-align: center; border-radius: 14px; }
+          .terrain-card > div:first-child { height: 200px; }
+          .terrain-card img { height: 100%; }
+          .slots-grid-res { grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 0 16px; }
+          .slot-btn { padding: 18px 6px; font-size: 15px; min-height: 64px; border-radius: 10px; }
+          .form-row { flex-direction: column; gap: 18px; padding: 0 16px; }
+          .form-row > div { width: 100%; flex: none; }
+          .form-section { padding: 0 16px; }
+          .confirm-stack { padding: 0 16px; gap: 10px; }
+          .confirm-card { padding: 14px 16px; border-radius: 12px; }
+          .confirm-card img { width: 56px; height: 40px; border-radius: 6px; }
+          .success-card { padding: 36px 16px; border-radius: 0; border-left: none; border-right: none; }
         }
 
         input:focus, textarea:focus {
-          border-color: #5cb844 !important;
-          box-shadow: 0 0 0 3px rgba(92,184,68,0.15) !important;
+          border-color: #5cb844;
+          box-shadow: 0 0 0 3px rgba(92,184,68,0.15);
         }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
       <Navbar />
 
-      <div className="res-container" style={{ padding: "110px 60px 80px", direction: "rtl", maxWidth: 1200, margin: "0 auto" }}>
+      {/* Auth Modal */}
+      {showAuthModal && <AuthModal />}
 
+      <div className="res-container">
         {/* Page title */}
         <div style={{ marginBottom: 32 }}>
           <span style={{ display: "inline-block", background: "rgba(45,106,33,0.08)", color: "#2d6a21", fontSize: 11, fontWeight: 700, letterSpacing: 2, padding: "5px 16px", borderRadius: 4, border: "1px solid rgba(45,106,33,0.18)", fontFamily: "'Cairo', sans-serif", marginBottom: 10 }}>حجز ملعب</span>
@@ -244,7 +439,7 @@ export default function Reservation() {
         </div>
 
         {/* Stepper */}
-        <div className="res-stepper-mobile" style={{ display: "flex", alignItems: "center", marginBottom: 28, background: "#fff", border: "1px solid #c8e6c0", borderRadius: 14, padding: "14px 24px", overflowX: "auto", boxShadow: "0 2px 8px rgba(45,106,33,0.04)" }}>
+        <div className="res-stepper">
           {STEPS.map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", flex: i < STEPS.length - 1 ? 1 : "none" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: i < step ? "pointer" : "default" }} onClick={() => i < step && setStep(i)}>
@@ -264,9 +459,9 @@ export default function Reservation() {
 
             {/* ========== STEP 0: CHOOSE TERRAIN ========== */}
             {step === 0 && (
-              <div className="res-main" style={{ background: "#fff", border: "1px solid #c8e6c0", borderRadius: 20, padding: "32px", boxShadow: "0 2px 16px rgba(45,106,33,0.06)" }}>
+              <div className="res-main">
                 <h3 style={{ fontSize: 22, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 24, marginTop: 0 }}>اختر الملعب</h3>
-                <div className="terrains-picker" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+                <div className="terrains-picker">
                   {terrains.map((t) => {
                     const active = selectedTerrain === t.id;
                     return (
@@ -304,13 +499,11 @@ export default function Reservation() {
 
             {/* ========== STEP 1: CHOOSE TIME ========== */}
             {step === 1 && (
-              <div className="res-main" style={{ background: "#fff", border: "1px solid #c8e6c0", borderRadius: 20, padding: "32px", boxShadow: "0 2px 16px rgba(45,106,33,0.06)" }}>
+              <div className="res-main">
                 <h3 style={{ fontSize: 22, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 6, marginTop: 0 }}>اختر الوقت</h3>
                 <p style={{ color: "#5a8a50", fontFamily: "'Cairo', sans-serif", fontSize: 14, marginBottom: 24, marginTop: 0 }}>
                   {todayLabel()} · <span style={{ color: "#2d6a21", fontWeight: 700 }}>{slots.filter(s => s.available).length} وقت متاح</span>
                 </p>
-
-                {/* Legend */}
                 <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
                   {[
                     { color: "#fff", border: "#c8e6c0", label: "متاح" },
@@ -323,8 +516,7 @@ export default function Reservation() {
                     </div>
                   ))}
                 </div>
-
-                <div className="slots-grid-res" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 10, marginBottom: 28 }}>
+                <div className="slots-grid-res">
                   {slots.map((s) => {
                     const isSel = selectedSlot === s.id;
                     const hour = s.hour !== undefined ? s.hour : parseInt(s.label);
@@ -347,7 +539,6 @@ export default function Reservation() {
                     );
                   })}
                 </div>
-
                 <div style={{ display: "flex", gap: 12 }}>
                   <button onClick={() => setStep(0)} style={{ background: "#fff", color: "#5a8a50", border: "1.5px solid #c8e6c0", padding: "13px 28px", borderRadius: 50, fontSize: 15, fontWeight: 700, fontFamily: "'Cairo', sans-serif", cursor: "pointer", transition: "all 0.2s" }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = "#5cb844"}
@@ -369,30 +560,30 @@ export default function Reservation() {
 
             {/* ========== STEP 2: PERSONAL INFO ========== */}
             {step === 2 && (
-              <div className="res-main" style={{ background: "#fff", border: "1px solid #c8e6c0", borderRadius: 20, padding: "32px", boxShadow: "0 2px 16px rgba(45,106,33,0.06)" }}>
+              <div className="res-main">
                 <h3 style={{ fontSize: 22, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 24, marginTop: 0 }}>بياناتك الشخصية</h3>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-                  <div className="form-row" style={{ display: "flex", gap: 16 }}>
-                    <div style={{ flex: 1 }}>
+                <div className="form-section" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                  <div className="form-row">
+                    <div>
                       <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 7 }}>الاسم الكامل *</label>
                       <input type="text" placeholder="محمد الأمين" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={inputStyle(errors.name)} />
                       {errors.name && <span style={{ fontSize: 11, color: "#e57373", fontFamily: "'Cairo', sans-serif", display: "block", marginTop: 4 }}>{errors.name}</span>}
                     </div>
-                    <div style={{ flex: 1 }}>
+                    <div>
                       <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 7 }}>رقم الهاتف *</label>
-                      <input type="tel" placeholder="+212 6xx xxx xxx" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} style={inputStyle(errors.phone)} dir="ltr" />
+                      <input type="tel" placeholder="+212 6xx xxx xxx" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} style={{ ...inputStyle(errors.phone), direction: "ltr" }} dir="ltr" />
                       {errors.phone && <span style={{ fontSize: 11, color: "#e57373", fontFamily: "'Cairo', sans-serif", display: "block", marginTop: 4 }}>{errors.phone}</span>}
                     </div>
                   </div>
 
-                  <div>
+                  <div className="form-section">
                     <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 7 }}>البريد الإلكتروني <span style={{ color: "#a0c090", fontWeight: 400 }}>(اختياري)</span></label>
-                    <input type="email" placeholder="example@gmail.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={inputStyle(errors.email)} dir="ltr" />
+                    <input type="email" placeholder="example@gmail.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={{ ...inputStyle(errors.email), direction: "ltr" }} dir="ltr" />
                     {errors.email && <span style={{ fontSize: 11, color: "#e57373", fontFamily: "'Cairo', sans-serif", display: "block", marginTop: 4 }}>{errors.email}</span>}
                   </div>
 
-                  <div>
+                  <div className="form-section">
                     <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 7 }}>ملاحظات <span style={{ color: "#a0c090", fontWeight: 400 }}>(اختياري)</span></label>
                     <textarea rows={3} placeholder="أي طلبات خاصة أو ملاحظات..." value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ ...inputStyle(false), resize: "vertical", minHeight: 90 }} />
                   </div>
@@ -413,13 +604,13 @@ export default function Reservation() {
 
             {/* ========== STEP 3: CONFIRM ========== */}
             {step === 3 && (
-              <div className="res-main" style={{ background: "#fff", border: "1px solid #c8e6c0", borderRadius: 20, padding: "32px", boxShadow: "0 2px 16px rgba(45,106,33,0.06)" }}>
+              <div className="res-main">
                 <h3 style={{ fontSize: 22, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 24, marginTop: 0 }}>مراجعة وتأكيد الحجز</h3>
 
-                <div className="confirm-stack" style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
+                <div className="confirm-stack">
                   {/* Terrain */}
-                  <div className="confirm-card" style={{ display: "flex", gap: 16, alignItems: "center", background: "#f8fbf7", border: "1px solid #c8e6c0", borderRadius: 14, padding: "16px 20px" }}>
-                    <img src={terrain?.image} alt="" style={{ width: 72, height: 50, objectFit: "cover", borderRadius: 8, flexShrink: 0 }} />
+                  <div className="confirm-card">
+                    <img src={terrain?.image} alt="" />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 16, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif" }}>{terrain?.name}</div>
                       <div style={{ fontSize: 13, color: "#5a8a50", fontFamily: "'Cairo', sans-serif" }}>{terrain?.type} · {terrain?.size}</div>
@@ -428,7 +619,7 @@ export default function Reservation() {
                   </div>
 
                   {/* Slot + date */}
-                  <div className="confirm-card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fbf7", border: "1px solid #c8e6c0", borderRadius: 14, padding: "16px 20px" }}>
+                  <div className="confirm-card" style={{ justifyContent: "space-between" }}>
                     <div>
                       <div style={{ fontSize: 12, color: "#5a8a50", fontFamily: "'Cairo', sans-serif", marginBottom: 4 }}>التاريخ والوقت</div>
                       <div style={{ fontSize: 16, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif" }}>{todayLabel()} · {slot?.label}</div>
@@ -437,7 +628,7 @@ export default function Reservation() {
                   </div>
 
                   {/* Personal info */}
-                  <div className="confirm-card" style={{ background: "#f8fbf7", border: "1px solid #c8e6c0", borderRadius: 14, padding: "16px 20px" }}>
+                  <div className="confirm-card" style={{ flexDirection: "column", alignItems: "stretch" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif" }}>بيانات الحجز</div>
                       <button onClick={() => setStep(2)} style={{ background: "none", border: "1px solid #c8e6c0", color: "#5a8a50", padding: "6px 14px", borderRadius: 8, fontSize: 12, fontFamily: "'Cairo', sans-serif", cursor: "pointer" }}>تعديل</button>
@@ -482,7 +673,7 @@ export default function Reservation() {
 
           {/* Sidebar summary */}
           <div className="res-summary">
-            <div style={{ background: "#fff", border: "1px solid #c8e6c0", borderRadius: 20, padding: "24px", boxShadow: "0 2px 16px rgba(45,106,33,0.06)", position: "sticky", top: 100 }}>
+            <div>
               <div style={{ fontSize: 15, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 18 }}>ملخص الحجز</div>
               <div style={{ borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
                 <img src={terrain?.image} alt="" style={{ width: "100%", height: 120, objectFit: "cover" }} />
