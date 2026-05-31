@@ -93,6 +93,35 @@ export default function Navbar() {
         fontFamily: "'Cairo', sans-serif",
       }}>
 
+        {/* ── MOBILE: Hamburger (TOP LEFT) ── */}
+        <button
+          className="nav-hamburger"
+          onClick={() => setMenuOpen(!menuOpen)}
+          style={{
+            display: "none", flexDirection: "column", gap: 5,
+            background: "none", border: "none", cursor: "pointer",
+            padding: 8, zIndex: 1001, order: -1,
+          }}
+          aria-label="Toggle menu"
+        >
+          <span style={{
+            width: 24, height: 2.5, background: "#2d6a21", borderRadius: 2,
+            display: "block", transition: "all 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
+            transform: menuOpen ? "rotate(45deg) translate(5px, 5px)" : "none",
+          }} />
+          <span style={{
+            width: 24, height: 2.5, background: "#2d6a21", borderRadius: 2,
+            display: "block", transition: "all 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
+            opacity: menuOpen ? 0 : 1,
+            transform: menuOpen ? "translateX(-10px)" : "none",
+          }} />
+          <span style={{
+            width: 24, height: 2.5, background: "#2d6a21", borderRadius: 2,
+            display: "block", transition: "all 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
+            transform: menuOpen ? "rotate(-45deg) translate(5px, -5px)" : "none",
+          }} />
+        </button>
+
         {/* Logo */}
         <Link to="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}>
           <div className="nav-logo-icon" style={{
@@ -267,35 +296,6 @@ export default function Navbar() {
             </>
           )}
         </div>
-
-        {/* Hamburger Button */}
-        <button
-          className="nav-hamburger"
-          onClick={() => setMenuOpen(!menuOpen)}
-          style={{
-            display: "none", flexDirection: "column", gap: 5,
-            background: "none", border: "none", cursor: "pointer",
-            padding: 8, zIndex: 1001,
-          }}
-          aria-label="Toggle menu"
-        >
-          <span style={{
-            width: 24, height: 2.5, background: "#2d6a21", borderRadius: 2,
-            display: "block", transition: "all 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
-            transform: menuOpen ? "rotate(45deg) translate(5px, 5px)" : "none",
-          }} />
-          <span style={{
-            width: 24, height: 2.5, background: "#2d6a21", borderRadius: 2,
-            display: "block", transition: "all 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
-            opacity: menuOpen ? 0 : 1,
-            transform: menuOpen ? "translateX(-10px)" : "none",
-          }} />
-          <span style={{
-            width: 24, height: 2.5, background: "#2d6a21", borderRadius: 2,
-            display: "block", transition: "all 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
-            transform: menuOpen ? "rotate(-45deg) translate(5px, -5px)" : "none",
-          }} />
-        </button>
       </nav>
 
       {/* ─── MOBILE MENU ─── */}
