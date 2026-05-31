@@ -2,1120 +2,720 @@ import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Navbar from "../../components/Navbar";
 import Footer from "../../components/Footer";
-import { terrains, generateSlots } from "../../api/Terrains";
+import { terrains } from "../../api/Terrains";
+import { generateSlots } from "../../api/Terrains";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const ARABIC_DAYS    = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
-const ARABIC_MONTHS  = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
-const STEPS          = ["اختر الملعب","اختر الوقت","بياناتك","تأكيد"];
+const days = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+const months = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function todayLabel() {
   const d = new Date();
-  return `${ARABIC_DAYS[d.getDay()]} ${d.getDate()} ${ARABIC_MONTHS[d.getMonth()]}`;
+  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
 }
-function formatTime(hour, minute = 0) {
+
+const STEPS = ["اختر الملعب", "اختر الوقت", "بياناتك", "تأكيد"];
+
+function generateReservationCode() {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+function generateReservationId() {
+  return 'RES-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substr(2, 4).toUpperCase();
+}
+
+function formatTimeWithPeriod(hour, minute = 0) {
   const period = hour >= 12 ? "م" : "ص";
-  const h = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-  return `${String(h).padStart(2,"0")}:${String(minute).padStart(2,"0")} ${period}`;
-}
-function randomCode() { return Math.floor(1000 + Math.random() * 9000).toString(); }
-function randomId()   { return "RES-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).substr(2,4).toUpperCase(); }
-function qrUrl(data)  { return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(JSON.stringify(data))}`; }
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-/** Step progress bar */
-function Stepper({ step, onBack }) {
-  return (
-    <div className="stepper">
-      {STEPS.map((label, i) => (
-        <div key={i} className="stepper-item">
-          <div
-            className={`stepper-circle ${i < step ? "done" : i === step ? "active" : ""}`}
-            onClick={() => i < step && onBack(i)}
-            style={{ cursor: i < step ? "pointer" : "default" }}
-          >
-            {i < step ? "✓" : i + 1}
-          </div>
-          <span className={`stepper-label ${i === step ? "current" : ""}`}>{label}</span>
-          {i < STEPS.length - 1 && <div className={`stepper-line ${i < step ? "filled" : ""}`} />}
-        </div>
-      ))}
-    </div>
-  );
+  const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+  const displayMinute = minute.toString().padStart(2, '0');
+  return `${displayHour.toString().padStart(2, '0')}:${displayMinute} ${period}`;
 }
 
-/** Terrain selection card */
-function TerrainCard({ terrain, selected, onSelect }) {
-  return (
-    <div
-      className={`terrain-card ${selected ? "terrain-card--active" : ""}`}
-      onClick={() => onSelect(terrain.id)}
-    >
-      <div className="terrain-card__img-wrap">
-        <img src={terrain.image} alt={terrain.name} />
-        {selected && <div className="terrain-card__check">✓</div>}
-      </div>
-      <div className="terrain-card__body">
-        <div className="terrain-card__name">{terrain.name}</div>
-        <div className="terrain-card__size">{terrain.size}</div>
-        <div className="terrain-card__tags">
-          {terrain.features.slice(0,2).map(f => (
-            <span key={f} className="tag">{f}</span>
-          ))}
-        </div>
-        <div className="terrain-card__price">
-          {terrain.price} <span className="price-unit">درهم/س</span>
-        </div>
-      </div>
-    </div>
-  );
-}
+/**
+ * Reservation Page - Multi-step booking flow
+ * 
+ * Features:
+ * - 4-step wizard: Terrain → Time → Info → Confirm
+ * - Auth check: redirects to login if not authenticated
+ * - Side summary panel (desktop)
+ * - Fully responsive layout
+ */
 
-/** Single time slot button */
-function SlotButton({ slot, selected, onSelect }) {
-  const hour = slot.hour ?? parseInt(slot.label);
-  const label = formatTime(hour);
-  return (
-    <button
-      className={`slot-btn ${selected ? "slot-btn--active" : ""} ${!slot.available ? "slot-btn--taken" : ""}`}
-      onClick={() => slot.available && onSelect(slot.id === selected ? null : slot.id)}
-      disabled={!slot.available}
-    >
-      <span className="slot-time">{label}</span>
-      {!slot.available && <span className="slot-taken-label">محجوز</span>}
-    </button>
-  );
-}
-
-/** Booking summary sidebar */
-function BookingSummary({ terrain, slot }) {
-  return (
-    <aside className="summary-card">
-      <div className="summary-card__title">ملخص الحجز</div>
-      {terrain?.image && (
-        <div className="summary-card__img-wrap">
-          <img src={terrain.image} alt={terrain.name} />
-        </div>
-      )}
-      <div className="summary-card__terrain-name">{terrain?.name}</div>
-      <div className="summary-card__terrain-sub">{terrain?.type} · {terrain?.size}</div>
-
-      <div className="summary-card__divider" />
-
-      <div className="summary-card__rows">
-        {[
-          { label: "التاريخ", value: todayLabel() },
-          { label: "الوقت",   value: slot?.label || "—", muted: !slot },
-          { label: "المدة",   value: "ساعة واحدة" },
-        ].map(({ label, value, muted }) => (
-          <div key={label} className="summary-card__row">
-            <span className="summary-card__row-label">{label}</span>
-            <span className={`summary-card__row-value ${muted ? "muted" : ""}`}>{value}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="summary-card__divider" />
-      <div className="summary-card__total-row">
-        <span className="summary-card__total-label">المجموع</span>
-        <span className="summary-card__total-value">
-          {terrain?.price} <span className="summary-card__total-unit">درهم</span>
-        </span>
-      </div>
-
-      <div className="summary-card__features">
-        {(terrain?.features || []).map(f => (
-          <div key={f} className="summary-card__feature">
-            <span className="dot" />
-            <span>{f}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="summary-card__badges">
-        {["✓ تأكيد فوري","✓ إلغاء مجاني 24س","✓ بدون رسوم"].map(b => (
-          <div key={b} className="summary-badge">{b}</div>
-        ))}
-      </div>
-    </aside>
-  );
-}
-
-/** Auth required modal */
-function AuthModal({ terrainName, terrainId, slotId, onClose }) {
-  const navigate = useNavigate();
-  const state = { from: "/reservation", terrainId, slotId, step: 3 };
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()}>
-        <div className="modal-icon">🔒</div>
-        <h3 className="modal-title">يجب تسجيل الدخول أولاً</h3>
-        <p className="modal-body">
-          لإتمام حجزك في <strong>{terrainName}</strong>، يرجى تسجيل الدخول أو إنشاء حساب جديد
-        </p>
-        <button className="btn btn--primary btn--full" onClick={() => navigate("/login", { state })}>
-          تسجيل الدخول →
-        </button>
-        <button className="btn btn--outline btn--full" onClick={() => navigate("/signup", { state })}>
-          إنشاء حساب جديد
-        </button>
-        <button className="btn btn--ghost btn--full" onClick={onClose}>
-          رجوع للمراجعة
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** Boarding-pass style confirmation ticket */
-function BoardingPassTicket({ terrain, slot, form, reservationCode, reservationId }) {
-  const qrData = { id: reservationId, code: reservationCode, name: form.name, terrain: terrain?.name, slot: slot?.label, date: todayLabel(), phone: form.phone };
-
-  const shareText = `تم حجز ملعب ${terrain?.name} بنجاح!\n📅 التاريخ: ${todayLabel()}\n⏰ الوقت: ${slot?.label}\n💰 السعر: ${terrain?.price} درهم\n🔢 كود: ${reservationCode}\n📱 رقم الحجز: ${reservationId}`;
-
-  function handleShare(platform) {
-    const text = encodeURIComponent(shareText);
-    const url  = encodeURIComponent(window.location.href);
-    const links = {
-      whatsapp: `https://wa.me/?text=${text}`,
-      facebook: `https://www.facebook.com/sharer/sharer.php?u=${url}&quote=${text}`,
-      twitter:  `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
-    };
-    if (platform === "copy" || platform === "instagram") {
-      navigator.clipboard.writeText(shareText);
-      alert("تم نسخ تفاصيل الحجز!");
-      return;
-    }
-    if (links[platform]) window.open(links[platform], "_blank", "width=600,height=400");
-  }
-
-  return (
-    <div className="ticket-wrap">
-      {/* Top green header */}
-      <div className="ticket-header">
-        <div className="ticket-header__label">تذكرة الحجز</div>
-        <div className="ticket-header__title">{terrain?.name}</div>
-        <div className="ticket-header__sub">{terrain?.type} · {terrain?.size}</div>
-      </div>
-
-      {/* Notch separator */}
-      <div className="ticket-notch">
-        <div className="notch notch--left" />
-        <div className="ticket-dashed-line" />
-        <div className="notch notch--right" />
-      </div>
-
-      {/* Info grid */}
-      <div className="ticket-body">
-        <div className="ticket-info-grid">
-          {[
-            { label: "التاريخ",        value: todayLabel() },
-            { label: "الوقت",          value: slot?.label || "—" },
-            { label: "الاسم",          value: form.name },
-            { label: "الهاتف",         value: form.phone },
-            { label: "السعر",          value: `${terrain?.price} درهم` },
-            { label: "رقم الحجز",      value: reservationId },
-          ].map(({ label, value }) => (
-            <div key={label} className="ticket-info-item">
-              <span className="ticket-info-label">{label}</span>
-              <span className="ticket-info-value">{value}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* QR + PIN */}
-        <div className="ticket-qr-section">
-          <img src={qrUrl(qrData)} alt="QR Code" className="ticket-qr-img" />
-          <div className="ticket-qr-hint">اعرض هذا الرمز عند وصولك</div>
-          <div className="ticket-pin-wrap">
-            <div className="ticket-pin-label">كود التأكيد</div>
-            <div className="ticket-pin">{reservationCode}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom notch */}
-      <div className="ticket-notch">
-        <div className="notch notch--left" />
-        <div className="ticket-dashed-line" />
-        <div className="notch notch--right" />
-      </div>
-
-      {/* Footer */}
-      <div className="ticket-footer">
-        <div className="ticket-footer-badge">⚽ استمتع بمباراتك!</div>
-        <div className="ticket-footer-note">تأكيد فوري · إلغاء مجاني قبل 24 ساعة · بدون رسوم إضافية</div>
-      </div>
-
-      {/* Share */}
-      <div className="ticket-share">
-        <div className="ticket-share-title">شارك حجزك</div>
-        <div className="ticket-share-btns">
-          {[
-            { id: "whatsapp",  label: "واتساب",   color: "#25D366" },
-            { id: "facebook",  label: "فيسبوك",   color: "#1877F2" },
-            { id: "twitter",   label: "تويتر",    color: "#1DA1F2" },
-            { id: "copy",      label: "نسخ",      color: "#5a8a50" },
-          ].map(({ id, label, color }) => (
-            <button
-              key={id}
-              className="share-btn"
-              style={{ background: color }}
-              onClick={() => handleShare(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Step panels ──────────────────────────────────────────────────────────────
-
-function StepTerrain({ selectedTerrain, onSelect, onNext }) {
-  return (
-    <div className="panel">
-      <h3 className="panel__title">اختر الملعب</h3>
-      <div className="terrains-grid">
-        {terrains.map(t => (
-          <TerrainCard
-            key={t.id}
-            terrain={t}
-            selected={selectedTerrain === t.id}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
-      <div className="panel__actions">
-        <button className="btn btn--primary" onClick={onNext}>التالي ←</button>
-      </div>
-    </div>
-  );
-}
-
-function StepTime({ slots, selectedSlot, onSelect, onNext, onBack }) {
-  return (
-    <div className="panel">
-      <h3 className="panel__title">اختر الوقت</h3>
-      <p className="panel__sub">
-        {todayLabel()} ·{" "}
-        <strong>{slots.filter(s => s.available).length} وقت متاح</strong>
-      </p>
-
-      <div className="slot-legend">
-        {[
-          { label: "متاح",   bg: "#fff",              border: "#c8e6c0" },
-          { label: "مختار",  bg: "rgba(45,106,33,.1)", border: "#5cb844" },
-          { label: "محجوز",  bg: "#f5f5f5",            border: "#eef5ec" },
-        ].map(({ label, bg, border }) => (
-          <div key={label} className="slot-legend-item">
-            <div className="slot-legend-dot" style={{ background: bg, border: `1.5px solid ${border}` }} />
-            <span>{label}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="slots-grid">
-        {slots.map(s => (
-          <SlotButton
-            key={s.id}
-            slot={s}
-            selected={selectedSlot === s.id}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
-
-      <div className="panel__actions">
-        <button className="btn btn--outline" onClick={onBack}>← رجوع</button>
-        <button
-          className="btn btn--primary"
-          disabled={!selectedSlot}
-          onClick={() => selectedSlot && onNext()}
-        >
-          التالي ←
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function StepInfo({ form, onChange, errors, onNext, onBack }) {
-  const inp = (field) => ({
-    value: form[field],
-    onChange: e => onChange(field, e.target.value),
-    className: `field-input ${errors[field] ? "field-input--error" : ""}`,
-  });
-
-  return (
-    <div className="panel">
-      <h3 className="panel__title">بياناتك الشخصية</h3>
-
-      <div className="form-grid">
-        <div className="field">
-          <label className="field-label">الاسم الكامل *</label>
-          <input type="text" placeholder="محمد الأمين" {...inp("name")} />
-          {errors.name && <span className="field-error">{errors.name}</span>}
-        </div>
-        <div className="field">
-          <label className="field-label">رقم الهاتف *</label>
-          <input type="tel" placeholder="+212 6xx xxx xxx" dir="ltr" {...inp("phone")} />
-          {errors.phone && <span className="field-error">{errors.phone}</span>}
-        </div>
-      </div>
-
-      <div className="field">
-        <label className="field-label">البريد الإلكتروني <span className="field-label--opt">(اختياري)</span></label>
-        <input type="email" placeholder="example@gmail.com" dir="ltr" {...inp("email")} />
-        {errors.email && <span className="field-error">{errors.email}</span>}
-      </div>
-
-      <div className="field">
-        <label className="field-label">ملاحظات <span className="field-label--opt">(اختياري)</span></label>
-        <textarea rows={3} placeholder="أي طلبات خاصة..." {...inp("notes")} />
-      </div>
-
-      <div className="panel__actions">
-        <button className="btn btn--outline" onClick={onBack}>← رجوع</button>
-        <button className="btn btn--primary" onClick={onNext}>مراجعة الحجز ←</button>
-      </div>
-    </div>
-  );
-}
-
-function StepConfirm({ terrain, slot, form, onBack, onSubmit }) {
-  return (
-    <div className="panel">
-      <h3 className="panel__title">مراجعة وتأكيد الحجز</h3>
-
-      <div className="confirm-stack">
-        {/* Terrain row */}
-        <div className="confirm-row">
-          <img src={terrain?.image} alt="" className="confirm-row__img" />
-          <div className="confirm-row__info">
-            <div className="confirm-row__name">{terrain?.name}</div>
-            <div className="confirm-row__sub">{terrain?.type} · {terrain?.size}</div>
-          </div>
-          <button className="btn btn--xs btn--outline" onClick={() => onBack(0)}>تغيير</button>
-        </div>
-
-        {/* Slot row */}
-        <div className="confirm-row">
-          <div className="confirm-row__info">
-            <div className="confirm-row__label">التاريخ والوقت</div>
-            <div className="confirm-row__name">{todayLabel()} · {slot?.label}</div>
-          </div>
-          <button className="btn btn--xs btn--outline" onClick={() => onBack(1)}>تغيير</button>
-        </div>
-
-        {/* Personal info */}
-        <div className="confirm-personal">
-          <div className="confirm-personal__header">
-            <span className="confirm-personal__title">بيانات الحجز</span>
-            <button className="btn btn--xs btn--outline" onClick={() => onBack(2)}>تعديل</button>
-          </div>
-          {[
-            { label: "الاسم",   value: form.name  },
-            { label: "الهاتف",  value: form.phone },
-            ...(form.email ? [{ label: "البريد", value: form.email }] : []),
-            ...(form.notes ? [{ label: "ملاحظات", value: form.notes }] : []),
-          ].map(({ label, value }) => (
-            <div key={label} className="confirm-info-row">
-              <span className="confirm-info-label">{label}</span>
-              <span className="confirm-info-value">{value}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Total */}
-        <div className="confirm-total">
-          <span className="confirm-total__label">المجموع</span>
-          <span className="confirm-total__value">
-            {terrain?.price} <span className="confirm-total__unit">درهم</span>
-          </span>
-        </div>
-      </div>
-
-      <div className="panel__actions">
-        <button className="btn btn--outline" onClick={() => onBack(2)}>← رجوع</button>
-        <button className="btn btn--primary btn--cta" onClick={onSubmit}>
-          ⚽ تأكيد الحجز نهائياً
-        </button>
-      </div>
-
-      <p className="confirm-note">تأكيد فوري · بدون رسوم إضافية · إلغاء مجاني قبل 24 ساعة</p>
-    </div>
-  );
-}
-
-// ─── Main page ────────────────────────────────────────────────────────────────
 export default function Reservation() {
   const location = useLocation();
-  const navigate  = useNavigate();
+  const navigate = useNavigate();
 
-  const [user, setUser]                   = useState(null);
+  // ── Auth State ──
+  const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
-  const initTerrain = location.state?.terrainId || terrains[0].id;
-  const initSlot    = location.state?.slotId    || null;
-
-  const [step,            setStep]            = useState(initSlot ? 2 : 0);
-  const [selectedTerrain, setSelectedTerrain] = useState(initTerrain);
-  const [selectedSlot,    setSelectedSlot]    = useState(initSlot);
-  const [form,            setForm]            = useState({ name:"", phone:"", email:"", notes:"" });
-  const [errors,          setErrors]          = useState({});
-  const [submitted,       setSubmitted]       = useState(false);
-  const [reservationCode, setReservationCode] = useState("");
-  const [reservationId,   setReservationId]   = useState("");
-
+  // Check auth on mount
   useEffect(() => {
     const stored = localStorage.getItem("user");
     if (stored) setUser(JSON.parse(stored));
   }, []);
 
-  const terrain = terrains.find(t => t.id === selectedTerrain);
-  const slots   = generateSlots(selectedTerrain);
-  const slot    = slots.find(s => s.id === selectedSlot);
+  const initTerrain = location.state?.terrainId || terrains[0].id;
+  const initSlot = location.state?.slotId || null;
 
-  function updateField(field, value) { setForm(f => ({ ...f, [field]: value })); }
+  const [step, setStep] = useState(initSlot ? 2 : 0);
+  const [selectedTerrain, setSelectedTerrain] = useState(initTerrain);
+  const [selectedSlot, setSelectedSlot] = useState(initSlot);
+  const [form, setForm] = useState({ name: "", phone: "", email: "", notes: "" });
+  const [submitted, setSubmitted] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [reservationCode, setReservationCode] = useState("");
+  const [reservationId, setReservationId] = useState("");
 
-  function validate() {
-    const e = {};
-    if (!form.name.trim())                                                   e.name  = "الاسم مطلوب";
-    if (!form.phone.trim() || !/^[0-9+]{9,14}$/.test(form.phone.replace(/\s/g,""))) e.phone = "رقم هاتف غير صحيح";
-    if (form.email && !/\S+@\S+\.\S+/.test(form.email))                     e.email = "البريد الإلكتروني غير صحيح";
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  }
+  const terrain = terrains.find((t) => t.id === selectedTerrain);
+  const slots = generateSlots(selectedTerrain);
+  const slot = slots.find((s) => s.id === selectedSlot);
 
-  function handleNext2() { if (validate()) setStep(3); }
-
-  function handleSubmit() {
-    if (!user) { setShowAuthModal(true); return; }
-    if (!validate()) return;
-    setReservationCode(randomCode());
-    setReservationId(randomId());
-    setSubmitted(true);
-  }
-
-  // ── Success screen ──
-  if (submitted) {
-    return (
-      <div className="res-page">
-        <Navbar />
-        <div className="success-screen">
-          <div className="success-check">✓</div>
-          <h2 className="success-title">تم تأكيد حجزك!</h2>
-          <p className="success-sub">
-            مرحباً <strong>{form.name}</strong>، تم الحجز بنجاح في{" "}
-            <strong>{terrain?.name}</strong> الساعة <strong>{slot?.label}</strong>
-          </p>
-          <BoardingPassTicket
-            terrain={terrain}
-            slot={slot}
-            form={form}
-            reservationCode={reservationCode}
-            reservationId={reservationId}
-          />
-          <button className="btn btn--primary" onClick={() => navigate("/")}>
-            العودة للرئيسية
+  // ── Auth Modal Component ──
+  const AuthModal = () => (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 2000,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)",
+      animation: "fadeIn 0.3s ease",
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: 24,
+        padding: "40px 36px", maxWidth: 400, width: "90%",
+        boxShadow: "0 25px 80px rgba(0,0,0,0.3)",
+        textAlign: "center", direction: "rtl",
+        fontFamily: "'Cairo', sans-serif",
+        animation: "slideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1)",
+      }}>
+        <div style={{
+          width: 64, height: 64, borderRadius: "50%",
+          background: "linear-gradient(135deg, #2d6a21, #5cb844)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          margin: "0 auto 20px", fontSize: 28,
+        }}>🔒</div>
+        <h3 style={{ fontSize: 22, fontWeight: 900, color: "#1a3d14", margin: "0 0 8px" }}>
+          يجب تسجيل الدخول أولاً
+        </h3>
+        <p style={{ fontSize: 14, color: "#5a8a50", margin: "0 0 28px", lineHeight: 1.7 }}>
+          لإتمام حجزك في <strong style={{ color: "#2d6a21" }}>{terrain?.name}</strong>،
+          يرجى تسجيل الدخول أو إنشاء حساب جديد
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            onClick={() => { setShowAuthModal(false); navigate("/login", { state: { from: "/reservation", terrainId: selectedTerrain, slotId: selectedSlot, step: 3 } }); }}
+            style={{
+              width: "100%", padding: "14px", borderRadius: 12,
+              border: "none", background: "linear-gradient(135deg, #2d6a21, #5cb844)",
+              color: "#fff", fontSize: 15, fontWeight: 800,
+              fontFamily: "'Cairo', sans-serif", cursor: "pointer",
+              boxShadow: "0 6px 20px rgba(45,106,33,0.3)",
+              transition: "all 0.2s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+            onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
+          >
+            تسجيل الدخول →
+          </button>
+          <button
+            onClick={() => { setShowAuthModal(false); navigate("/signup", { state: { from: "/reservation", terrainId: selectedTerrain, slotId: selectedSlot, step: 3 } }); }}
+            style={{
+              width: "100%", padding: "14px", borderRadius: 12,
+              border: "1.5px solid #c8e6c0", background: "#fff",
+              color: "#2d6a21", fontSize: 15, fontWeight: 700,
+              fontFamily: "'Cairo', sans-serif", cursor: "pointer",
+              transition: "all 0.2s",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "#5cb844"; e.currentTarget.style.background = "rgba(45,106,33,0.04)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "#c8e6c0"; e.currentTarget.style.background = "#fff"; }}
+          >
+            إنشاء حساب جديد
+          </button>
+          <button
+            onClick={() => setShowAuthModal(false)}
+            style={{
+              width: "100%", padding: "10px", borderRadius: 12,
+              border: "none", background: "none",
+              color: "#a0c090", fontSize: 13,
+              fontFamily: "'Cairo', sans-serif", cursor: "pointer",
+            }}
+          >
+            رجوع للمراجعة
           </button>
         </div>
+      </div>
+    </div>
+  );
+
+  const validate = () => {
+    const e = {};
+    if (!form.name.trim()) e.name = "الاسم مطلوب";
+    if (!form.phone.trim() || !/^[0-9+]{9,14}$/.test(form.phone.replace(/\s/g, ""))) e.phone = "رقم هاتف غير صحيح";
+    if (form.email && !/\S+@\S+\.\S+/.test(form.email)) e.email = "البريد الإلكتروني غير صحيح";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  // ── Handle Submit with Auth Check ──
+  const handleSubmit = () => {
+    if (!user) {
+      // Show auth modal instead of alert
+      setShowAuthModal(true);
+      return;
+    }
+    if (!validate()) return;
+    setReservationCode(generateReservationCode());
+    setReservationId(generateReservationId());
+    setSubmitted(true);
+  };
+
+  const generateQRData = () => {
+    const qrData = JSON.stringify({
+      id: reservationId,
+      code: reservationCode,
+      name: form.name,
+      terrain: terrain?.name,
+      slot: slot?.label,
+      date: todayLabel(),
+      phone: form.phone,
+    });
+    return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrData)}`;
+  };
+
+  // Share functions
+  const shareText = `تم حجز ملعب ${terrain?.name} بنجاح!\n📅 التاريخ: ${todayLabel()}\n⏰ الوقت: ${slot?.label}\n💰 السعر: ${terrain?.price} درهم\n🔢 كود التأكيد: ${reservationCode}\n📱 رقم الحجز: ${reservationId}`;
+  const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+
+  const handleShare = (platform) => {
+    const text = encodeURIComponent(shareText);
+    const url = encodeURIComponent(shareUrl);
+    let shareLink = "";
+    switch (platform) {
+      case "whatsapp":
+        shareLink = `https://wa.me/?text=${text}`;
+        break;
+      case "facebook":
+        shareLink = `https://www.facebook.com/sharer/sharer.php?u=${url}&quote=${text}`;
+        break;
+      case "instagram":
+        navigator.clipboard.writeText(shareText.replace(/\n/g, "\n"));
+        alert("تم نسخ نص المشاركة! الصقه في Instagram");
+        return;
+      case "twitter":
+        shareLink = `https://twitter.com/intent/tweet?text=${text}&url=${url}`;
+        break;
+      case "copy":
+        navigator.clipboard.writeText(shareText.replace(/\n/g, "\n"));
+        alert("تم نسخ تفاصيل الحجز!");
+        return;
+      default:
+        if (navigator.share) {
+          navigator.share({
+            title: "تأكيد حجز الملعب",
+            text: shareText.replace(/\n/g, "\n"),
+            url: shareUrl,
+          });
+          return;
+        }
+    }
+    if (shareLink) window.open(shareLink, "_blank", "width=600,height=400");
+  };
+
+  const inputStyle = (err) => ({
+    width: "100%",
+    padding: "14px 18px",
+    borderRadius: 10,
+    border: `1.5px solid ${err ? "#e57373" : "#c8e6c0"}`,
+    background: err ? "#fff5f5" : "#fff",
+    fontSize: 15,
+    fontFamily: "'Cairo', sans-serif",
+    color: "#1a3d14",
+    outline: "none",
+    transition: "border-color 0.2s, box-shadow 0.2s",
+    boxSizing: "border-box",
+    direction: "rtl",
+  });
+
+  // ── SUCCESS STATE ──
+  if (submitted) {
+    return (
+      <div style={{ background: "#f8fbf7", minHeight: "100vh" }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap');`}</style>
+        <Navbar />
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "120px 16px 60px", direction: "rtl" }}>
+          <div className="success-card" style={{ background: "#fff", border: "1px solid #c8e6c0", borderRadius: 24, padding: "48px 24px", textAlign: "center", maxWidth: 520, width: "100%", boxShadow: "0 8px 40px rgba(45,106,33,0.1)" }}>
+            <div style={{ width: 80, height: 80, borderRadius: "50%", background: "linear-gradient(135deg, #2d6a21, #5cb844)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, margin: "0 auto 24px", boxShadow: "0 8px 24px rgba(45,106,33,0.3)", color: "#fff" }}>✓</div>
+            <h2 style={{ fontSize: 28, fontWeight: 900, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 12 }}>تم تأكيد حجزك!</h2>
+            <p style={{ color: "#5a8a50", fontFamily: "'Cairo', sans-serif", fontSize: 15, lineHeight: 1.8, marginBottom: 28 }}>
+              مرحباً {form.name}، تم حجز <strong style={{ color: "#2d6a21" }}>{terrain?.name}</strong> بنجاح للساعة <strong style={{ color: "#2d6a21" }}>{slot?.label}</strong> بتاريخ {todayLabel()}
+            </p>
+            <div style={{ background: "#f0f7ee", border: "1.5px solid #c8e6c0", borderRadius: 16, padding: "24px 16px", marginBottom: 28, textAlign: "center" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 14 }}>رمز تأكيد الحجز</div>
+              <div style={{ marginBottom: 16 }}>
+                <img src={generateQRData()} alt="QR Code" style={{ width: 160, height: 160, borderRadius: 12, border: "2px solid #c8e6c0", background: "#fff", padding: 6 }} />
+                <div style={{ fontSize: 11, color: "#5a8a50", fontFamily: "'Cairo', sans-serif", marginTop: 6 }}>اعرض هذا الرمز عند وصولك للملعب</div>
+              </div>
+              <div style={{ background: "#fff", border: "2px dashed #5cb844", borderRadius: 12, padding: "14px 20px", display: "inline-block" }}>
+                <div style={{ fontSize: 12, color: "#5a8a50", fontFamily: "'Cairo', sans-serif", marginBottom: 4 }}>كود التأكيد</div>
+                <div style={{ fontSize: 32, fontWeight: 900, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", letterSpacing: 6, direction: "ltr" }}>{reservationCode}</div>
+              </div>
+              <div style={{ fontSize: 11, color: "#a0c090", fontFamily: "'Cairo', sans-serif", marginTop: 10 }}>رقم الحجز: {reservationId}</div>
+            </div>
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 12 }}>شارك حجزك</div>
+              <div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
+                {[
+                  { name: "whatsapp", label: "واتساب", color: "#25D366", icon: "💬" },
+                  { name: "facebook", label: "فيسبوك", color: "#1877F2", icon: "📘" },
+                  { name: "instagram", label: "انستغرام", color: "#E4405F", icon: "📷" },
+                  { name: "twitter", label: "تويتر", color: "#1DA1F2", icon: "🐦" },
+                  { name: "copy", label: "نسخ", color: "#5a8a50", icon: "📋" },
+                ].map(({ name, label, color, icon }) => (
+                  <button key={name} onClick={() => handleShare(name)} style={{ background: color, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 50, fontSize: 12, fontWeight: 700, fontFamily: "'Cairo', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, boxShadow: `0 4px 12px ${color}40`, transition: "all 0.2s" }} onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"} onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}>
+                    <span>{icon}</span><span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ background: "#f0f7ee", border: "1px solid #c8e6c0", borderRadius: 12, padding: "14px 16px", marginBottom: 24, textAlign: "right" }}>
+              {[
+                { label: "الملعب", value: terrain?.name },
+                { label: "الوقت", value: slot?.label },
+                { label: "السعر", value: `${terrain?.price} درهم` },
+                { label: "الهاتف", value: form.phone },
+              ].map(({ label, value }) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #ddf0d8" }}>
+                  <span style={{ color: "#5a8a50", fontFamily: "'Cairo', sans-serif", fontSize: 13 }}>{label}</span>
+                  <span style={{ color: "#1a3d14", fontFamily: "'Cairo', sans-serif", fontSize: 13, fontWeight: 700 }}>{value}</span>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => navigate("/")} style={{ background: "linear-gradient(135deg, #2d6a21, #5cb844)", color: "#fff", border: "none", padding: "14px 40px", borderRadius: 50, fontSize: 16, fontWeight: 800, fontFamily: "'Cairo', sans-serif", cursor: "pointer", boxShadow: "0 6px 20px rgba(45,106,33,0.3)" }}>العودة للرئيسية</button>
+          </div>
+        </div>
         <Footer />
-        <Styles />
       </div>
     );
   }
 
-  // ── Wizard ──
   return (
-    <div className="res-page">
+    <div style={{ background: "#f8fbf7", minHeight: "100vh" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap');
+
+        /* ========== DESKTOP STYLES ========== */
+        .res-layout { 
+          display: grid; 
+          grid-template-columns: 1fr 340px; 
+          gap: 28px; 
+          align-items: start; 
+        }
+        .res-container { 
+          padding: 110px 60px 80px; 
+          direction: rtl; 
+          max-width: 1200px; 
+          margin: 0 auto; 
+        }
+        .res-stepper {
+          display: flex;
+          align-items: center;
+          margin-bottom: 28px;
+          background: #fff;
+          border: 1px solid #c8e6c0;
+          border-radius: 14px;
+          padding: 14px 24px;
+          overflow-x: auto;
+          box-shadow: 0 2px 8px rgba(45,106,33,0.04);
+        }
+        .res-main {
+          background: #fff;
+          border: 1px solid #c8e6c0;
+          border-radius: 20px;
+          padding: 32px;
+          box-shadow: 0 2px 16px rgba(45,106,33,0.06);
+        }
+        .terrains-picker {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+        }
+        .slots-grid-res {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+          gap: 10px;
+          margin-bottom: 28px;
+        }
+        .form-row {
+          display: flex;
+          gap: 16px;
+        }
+        .form-row > div {
+          flex: 1;
+        }
+        .confirm-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin-bottom: 28px;
+        }
+        .confirm-card {
+          display: flex;
+          gap: 16px;
+          align-items: center;
+          background: #f8fbf7;
+          border: 1px solid #c8e6c0;
+          border-radius: 14px;
+          padding: 16px 20px;
+        }
+        .confirm-card img {
+          width: 72px;
+          height: 50px;
+          object-fit: cover;
+          border-radius: 8px;
+          flex-shrink: 0;
+        }
+        .res-summary > div {
+          background: #fff;
+          border: 1px solid #c8e6c0;
+          border-radius: 20px;
+          padding: 24px;
+          box-shadow: 0 2px 16px rgba(45,106,33,0.06);
+          position: sticky;
+          top: 100px;
+        }
+
+        /* ========== TABLET ========== */
+        @media (max-width: 960px) {
+          .res-layout { grid-template-columns: 1fr; }
+          .res-summary { order: -1; }
+          .res-container { padding: 100px 24px 60px; }
+        }
+
+        /* ========== MOBILE (max-width: 600px) ========== */
+        @media (max-width: 600px) {
+          .res-container { padding: 90px 0 48px 0; max-width: 100%; margin: 0; }
+          .res-container > div:first-child { padding: 0 16px; margin-bottom: 20px; }
+          .res-stepper { margin: 0 16px 20px 16px; border-radius: 12px; padding: 12px 16px; }
+          .step-label { display: none; }
+          .res-layout { display: flex; flex-direction: column; }
+          .res-main-content { order: -1; width: 100%; }
+          .res-summary { order: 0; margin: 16px; width: auto; }
+          .res-summary > div { position: static; border-radius: 16px; }
+          .res-main { border-radius: 0; border-left: none; border-right: none; padding: 24px 0; width: 100%; box-shadow: none; }
+          .res-main > h3, .res-main > p { padding: 0 16px; margin-bottom: 20px; }
+          .res-main > div:last-child { padding: 0 16px; margin-top: 24px; }
+          .terrains-picker { display: flex; flex-direction: row; overflow-x: auto; gap: 12px; padding: 0 16px 12px 16px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scroll-padding-left: 16px; scroll-padding-right: 16px; }
+          .terrains-picker::-webkit-scrollbar { display: none; }
+          .terrain-card { min-width: 85vw; max-width: 85vw; flex-shrink: 0; scroll-snap-align: center; border-radius: 14px; }
+          .terrain-card > div:first-child { height: 200px; }
+          .terrain-card img { height: 100%; }
+          .slots-grid-res { grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 0 16px; }
+          .slot-btn { padding: 18px 6px; font-size: 15px; min-height: 64px; border-radius: 10px; }
+          .form-row { flex-direction: column; gap: 18px; padding: 0 16px; }
+          .form-row > div { width: 100%; flex: none; }
+          .form-section { padding: 0 16px; }
+          .confirm-stack { padding: 0 16px; gap: 10px; }
+          .confirm-card { padding: 14px 16px; border-radius: 12px; }
+          .confirm-card img { width: 56px; height: 40px; border-radius: 6px; }
+          .success-card { padding: 36px 16px; border-radius: 0; border-left: none; border-right: none; }
+        }
+
+        input:focus, textarea:focus {
+          border-color: #5cb844;
+          box-shadow: 0 0 0 3px rgba(92,184,68,0.15);
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
+
       <Navbar />
 
-      {showAuthModal && (
-        <AuthModal
-          terrainName={terrain?.name}
-          terrainId={selectedTerrain}
-          slotId={selectedSlot}
-          onClose={() => setShowAuthModal(false)}
-        />
-      )}
+      {/* Auth Modal */}
+      {showAuthModal && <AuthModal />}
 
       <div className="res-container">
-        {/* Page heading */}
-        <div className="res-heading">
-          <span className="res-badge">حجز ملعب</span>
-          <h1 className="res-title">احجز ملعبك الآن</h1>
+        {/* Page title */}
+        <div style={{ marginBottom: 32 }}>
+          <span style={{ display: "inline-block", background: "rgba(45,106,33,0.08)", color: "#2d6a21", fontSize: 11, fontWeight: 700, letterSpacing: 2, padding: "5px 16px", borderRadius: 4, border: "1px solid rgba(45,106,33,0.18)", fontFamily: "'Cairo', sans-serif", marginBottom: 10 }}>حجز ملعب</span>
+          <h1 style={{ fontSize: 36, fontWeight: 900, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", margin: 0 }}>احجز ملعبك الآن</h1>
         </div>
 
-        <Stepper step={step} onBack={setStep} />
+        {/* Stepper */}
+        <div className="res-stepper">
+          {STEPS.map((s, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", flex: i < STEPS.length - 1 ? 1 : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: i < step ? "pointer" : "default" }} onClick={() => i < step && setStep(i)}>
+                <div style={{ width: 32, height: 32, borderRadius: "50%", background: i <= step ? "linear-gradient(135deg, #2d6a21, #5cb844)" : "#f0f7ee", border: `2px solid ${i <= step ? "#5cb844" : "#c8e6c0"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: i <= step ? "#fff" : "#a0c090", flexShrink: 0, boxShadow: i === step ? "0 4px 12px rgba(45,106,33,0.25)" : "none", transition: "all 0.3s" }}>{i < step ? "✓" : i + 1}</div>
+                <span className="step-label" style={{ fontSize: 13, fontWeight: i === step ? 700 : 500, color: i === step ? "#2d6a21" : i < step ? "#5a8a50" : "#a0c090", fontFamily: "'Cairo', sans-serif", whiteSpace: "nowrap" }}>{s}</span>
+              </div>
+              {i < STEPS.length - 1 && (
+                <div style={{ flex: 1, height: 2, background: i < step ? "#5cb844" : "#e0f0da", margin: "0 12px", minWidth: 16 }} />
+              )}
+            </div>
+          ))}
+        </div>
 
         <div className="res-layout">
-          {/* Main wizard panel */}
-          <div className="res-main">
+          {/* Main panel */}
+          <div className="res-main-content">
+
+            {/* ========== STEP 0: CHOOSE TERRAIN ========== */}
             {step === 0 && (
-              <StepTerrain
-                selectedTerrain={selectedTerrain}
-                onSelect={setSelectedTerrain}
-                onNext={() => setStep(1)}
-              />
+              <div className="res-main">
+                <h3 style={{ fontSize: 22, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 24, marginTop: 0 }}>اختر الملعب</h3>
+                <div className="terrains-picker">
+                  {terrains.map((t) => {
+                    const active = selectedTerrain === t.id;
+                    return (
+                      <div key={t.id} className="terrain-card" onClick={() => setSelectedTerrain(t.id)} style={{ border: `2px solid ${active ? "#5cb844" : "#c8e6c0"}`, borderRadius: 16, overflow: "hidden", cursor: "pointer", transition: "all 0.25s", background: active ? "rgba(45,106,33,0.04)" : "#fff", boxShadow: active ? "0 4px 20px rgba(45,106,33,0.15)" : "0 1px 4px rgba(45,106,33,0.04)", transform: active ? "translateY(-3px)" : "none" }}>
+                        <div style={{ position: "relative", height: 130 }}>
+                          <img src={t.image} alt={t.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          {active && (
+                            <div style={{ position: "absolute", top: 10, left: 10, width: 24, height: 24, borderRadius: "50%", background: "#5cb844", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, fontWeight: 900 }}>✓</div>
+                          )}
+                        </div>
+                        <div style={{ padding: "14px 16px" }}>
+                          <div style={{ fontSize: 15, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif" }}>{t.name}</div>
+                          <div style={{ fontSize: 12, color: "#5a8a50", fontFamily: "'Cairo', sans-serif", margin: "4px 0 8px" }}>{t.size}</div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                            {t.features.slice(0, 2).map(f => (
+                              <span key={f} style={{ background: "rgba(45,106,33,0.07)", border: "1px solid #c8e6c0", color: "#2d6a21", fontSize: 10, fontFamily: "'Cairo', sans-serif", padding: "2px 8px", borderRadius: 5 }}>{f}</span>
+                            ))}
+                          </div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: "#2d6a21", fontFamily: "'Cairo', sans-serif" }}>
+                            {t.price} <span style={{ fontSize: 11, fontWeight: 400, color: "#5a8a50" }}>درهم/س</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: 28 }}>
+                  <button onClick={() => setStep(1)} style={{ background: "linear-gradient(135deg, #2d6a21, #5cb844)", color: "#fff", border: "none", padding: "14px 40px", borderRadius: 50, fontSize: 16, fontWeight: 800, fontFamily: "'Cairo', sans-serif", cursor: "pointer", boxShadow: "0 6px 20px rgba(45,106,33,0.3)", transition: "all 0.2s" }}
+                    onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+                    onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
+                  >التالي ←</button>
+                </div>
+              </div>
             )}
+
+            {/* ========== STEP 1: CHOOSE TIME ========== */}
             {step === 1 && (
-              <StepTime
-                slots={slots}
-                selectedSlot={selectedSlot}
-                onSelect={setSelectedSlot}
-                onNext={() => setStep(2)}
-                onBack={() => setStep(0)}
-              />
+              <div className="res-main">
+                <h3 style={{ fontSize: 22, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 6, marginTop: 0 }}>اختر الوقت</h3>
+                <p style={{ color: "#5a8a50", fontFamily: "'Cairo', sans-serif", fontSize: 14, marginBottom: 24, marginTop: 0 }}>
+                  {todayLabel()} · <span style={{ color: "#2d6a21", fontWeight: 700 }}>{slots.filter(s => s.available).length} وقت متاح</span>
+                </p>
+                <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+                  {[
+                    { color: "#fff", border: "#c8e6c0", label: "متاح" },
+                    { color: "rgba(45,106,33,0.1)", border: "#5cb844", label: "مختار" },
+                    { color: "#f5f5f5", border: "#eef5ec", label: "محجوز" },
+                  ].map(({ color, border, label }) => (
+                    <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ width: 16, height: 16, borderRadius: 4, background: color, border: `1.5px solid ${border}` }} />
+                      <span style={{ fontSize: 12, color: "#5a8a50", fontFamily: "'Cairo', sans-serif" }}>{label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="slots-grid-res">
+                  {slots.map((s) => {
+                    const isSel = selectedSlot === s.id;
+                    const hour = s.hour !== undefined ? s.hour : parseInt(s.label);
+                    const timeLabel = formatTimeWithPeriod(hour);
+                    return (
+                      <button key={s.id} className="slot-btn" onClick={() => s.available && setSelectedSlot(isSel ? null : s.id)} style={{
+                        fontFamily: "'Cairo', sans-serif", fontSize: 15, fontWeight: 700, padding: "14px 6px", borderRadius: 10,
+                        border: `1.5px solid ${isSel ? "#5cb844" : s.available ? "#c8e6c0" : "#eef5ec"}`,
+                        background: isSel ? "rgba(45,106,33,0.1)" : s.available ? "#fff" : "#f5f5f5",
+                        color: isSel ? "#2d6a21" : s.available ? "#1a3d14" : "#c0d4bc",
+                        cursor: s.available ? "pointer" : "not-allowed", transition: "all 0.2s",
+                        boxShadow: isSel ? "0 2px 10px rgba(45,106,33,0.2)" : "none", position: "relative",
+                        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 56,
+                      }}>
+                        <span style={{ fontSize: 15, fontWeight: 700 }}>{timeLabel}</span>
+                        {!s.available && (
+                          <div style={{ position: "absolute", inset: 0, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#b0c8aa", fontFamily: "'Cairo', sans-serif", background: "rgba(245,245,245,0.8)", fontWeight: 600 }}>محجوز</div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <button onClick={() => setStep(0)} style={{ background: "#fff", color: "#5a8a50", border: "1.5px solid #c8e6c0", padding: "13px 28px", borderRadius: 50, fontSize: 15, fontWeight: 700, fontFamily: "'Cairo', sans-serif", cursor: "pointer", transition: "all 0.2s" }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = "#5cb844"}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = "#c8e6c0"}
+                  >← رجوع</button>
+                  <button disabled={!selectedSlot} onClick={() => selectedSlot && setStep(2)} style={{
+                    background: selectedSlot ? "linear-gradient(135deg, #2d6a21, #5cb844)" : "#e0f0da",
+                    color: selectedSlot ? "#fff" : "#a0c090", border: "none", padding: "14px 40px", borderRadius: 50,
+                    fontSize: 16, fontWeight: 800, fontFamily: "'Cairo', sans-serif",
+                    cursor: selectedSlot ? "pointer" : "not-allowed",
+                    boxShadow: selectedSlot ? "0 6px 20px rgba(45,106,33,0.3)" : "none", transition: "all 0.2s",
+                  }}
+                    onMouseEnter={e => selectedSlot && (e.currentTarget.style.transform = "translateY(-2px)")}
+                    onMouseLeave={e => (e.currentTarget.style.transform = "translateY(0)")}
+                  >التالي ←</button>
+                </div>
+              </div>
             )}
+
+            {/* ========== STEP 2: PERSONAL INFO ========== */}
             {step === 2 && (
-              <StepInfo
-                form={form}
-                onChange={updateField}
-                errors={errors}
-                onNext={handleNext2}
-                onBack={() => setStep(1)}
-              />
+              <div className="res-main">
+                <h3 style={{ fontSize: 22, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 24, marginTop: 0 }}>بياناتك الشخصية</h3>
+
+                <div className="form-section" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                  <div className="form-row">
+                    <div>
+                      <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 7 }}>الاسم الكامل *</label>
+                      <input type="text" placeholder="محمد الأمين" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={inputStyle(errors.name)} />
+                      {errors.name && <span style={{ fontSize: 11, color: "#e57373", fontFamily: "'Cairo', sans-serif", display: "block", marginTop: 4 }}>{errors.name}</span>}
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 7 }}>رقم الهاتف *</label>
+                      <input type="tel" placeholder="+212 6xx xxx xxx" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} style={{ ...inputStyle(errors.phone), direction: "ltr" }} dir="ltr" />
+                      {errors.phone && <span style={{ fontSize: 11, color: "#e57373", fontFamily: "'Cairo', sans-serif", display: "block", marginTop: 4 }}>{errors.phone}</span>}
+                    </div>
+                  </div>
+
+                  <div className="form-section">
+                    <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 7 }}>البريد الإلكتروني <span style={{ color: "#a0c090", fontWeight: 400 }}>(اختياري)</span></label>
+                    <input type="email" placeholder="example@gmail.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={{ ...inputStyle(errors.email), direction: "ltr" }} dir="ltr" />
+                    {errors.email && <span style={{ fontSize: 11, color: "#e57373", fontFamily: "'Cairo', sans-serif", display: "block", marginTop: 4 }}>{errors.email}</span>}
+                  </div>
+
+                  <div className="form-section">
+                    <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", marginBottom: 7 }}>ملاحظات <span style={{ color: "#a0c090", fontWeight: 400 }}>(اختياري)</span></label>
+                    <textarea rows={3} placeholder="أي طلبات خاصة أو ملاحظات..." value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ ...inputStyle(false), resize: "vertical", minHeight: 90 }} />
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 12, marginTop: 28 }}>
+                  <button onClick={() => setStep(1)} style={{ background: "#fff", color: "#5a8a50", border: "1.5px solid #c8e6c0", padding: "13px 28px", borderRadius: 50, fontSize: 15, fontWeight: 700, fontFamily: "'Cairo', sans-serif", cursor: "pointer", transition: "all 0.2s" }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = "#5cb844"}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = "#c8e6c0"}
+                  >← رجوع</button>
+                  <button onClick={() => { if (validate()) setStep(3); }} style={{ background: "linear-gradient(135deg, #2d6a21, #5cb844)", color: "#fff", border: "none", padding: "14px 40px", borderRadius: 50, fontSize: 16, fontWeight: 800, fontFamily: "'Cairo', sans-serif", cursor: "pointer", boxShadow: "0 6px 20px rgba(45,106,33,0.3)", transition: "all 0.2s" }}
+                    onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+                    onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
+                  >مراجعة الحجز ←</button>
+                </div>
+              </div>
             )}
+
+            {/* ========== STEP 3: CONFIRM ========== */}
             {step === 3 && (
-              <StepConfirm
-                terrain={terrain}
-                slot={slot}
-                form={form}
-                onBack={(s) => setStep(s)}
-                onSubmit={handleSubmit}
-              />
+              <div className="res-main">
+                <h3 style={{ fontSize: 22, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 24, marginTop: 0 }}>مراجعة وتأكيد الحجز</h3>
+
+                <div className="confirm-stack">
+                  {/* Terrain */}
+                  <div className="confirm-card">
+                    <img src={terrain?.image} alt="" />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif" }}>{terrain?.name}</div>
+                      <div style={{ fontSize: 13, color: "#5a8a50", fontFamily: "'Cairo', sans-serif" }}>{terrain?.type} · {terrain?.size}</div>
+                    </div>
+                    <button onClick={() => setStep(0)} style={{ background: "none", border: "1px solid #c8e6c0", color: "#5a8a50", padding: "6px 14px", borderRadius: 8, fontSize: 12, fontFamily: "'Cairo', sans-serif", cursor: "pointer" }}>تغيير</button>
+                  </div>
+
+                  {/* Slot + date */}
+                  <div className="confirm-card" style={{ justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontSize: 12, color: "#5a8a50", fontFamily: "'Cairo', sans-serif", marginBottom: 4 }}>التاريخ والوقت</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif" }}>{todayLabel()} · {slot?.label}</div>
+                    </div>
+                    <button onClick={() => setStep(1)} style={{ background: "none", border: "1px solid #c8e6c0", color: "#5a8a50", padding: "6px 14px", borderRadius: 8, fontSize: 12, fontFamily: "'Cairo', sans-serif", cursor: "pointer" }}>تغيير</button>
+                  </div>
+
+                  {/* Personal info */}
+                  <div className="confirm-card" style={{ flexDirection: "column", alignItems: "stretch" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif" }}>بيانات الحجز</div>
+                      <button onClick={() => setStep(2)} style={{ background: "none", border: "1px solid #c8e6c0", color: "#5a8a50", padding: "6px 14px", borderRadius: 8, fontSize: 12, fontFamily: "'Cairo', sans-serif", cursor: "pointer" }}>تعديل</button>
+                    </div>
+                    {[
+                      { label: "الاسم", value: form.name },
+                      { label: "الهاتف", value: form.phone },
+                      ...(form.email ? [{ label: "البريد", value: form.email }] : []),
+                      ...(form.notes ? [{ label: "ملاحظات", value: form.notes }] : []),
+                    ].map(({ label, value }) => (
+                      <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #e8f5e0" }}>
+                        <span style={{ color: "#5a8a50", fontFamily: "'Cairo', sans-serif", fontSize: 13 }}>{label}</span>
+                        <span style={{ color: "#1a3d14", fontFamily: "'Cairo', sans-serif", fontSize: 13, fontWeight: 600 }}>{value}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Total */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(45,106,33,0.06)", border: "1.5px solid rgba(92,184,68,0.4)", borderRadius: 14, padding: "18px 20px" }}>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: "#1a3d14", fontFamily: "'Cairo', sans-serif" }}>المجموع</span>
+                    <span style={{ fontSize: 28, fontWeight: 900, color: "#2d6a21", fontFamily: "'Cairo', sans-serif" }}>
+                      {terrain?.price} <span style={{ fontSize: 13, fontWeight: 400, color: "#5a8a50" }}>درهم</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 12 }}>
+                  <button onClick={() => setStep(2)} style={{ background: "#fff", color: "#5a8a50", border: "1.5px solid #c8e6c0", padding: "13px 28px", borderRadius: 50, fontSize: 15, fontWeight: 700, fontFamily: "'Cairo', sans-serif", cursor: "pointer", transition: "all 0.2s" }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = "#5cb844"}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = "#c8e6c0"}
+                  >← رجوع</button>
+                  <button onClick={handleSubmit} style={{ background: "linear-gradient(135deg, #2d6a21, #5cb844)", color: "#fff", border: "none", padding: "14px 44px", borderRadius: 50, fontSize: 16, fontWeight: 800, fontFamily: "'Cairo', sans-serif", cursor: "pointer", boxShadow: "0 6px 24px rgba(45,106,33,0.35)", transition: "all 0.2s", flex: 1 }}
+                    onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+                    onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
+                  >⚽ تأكيد الحجز نهائياً</button>
+                </div>
+
+                <p style={{ textAlign: "center", fontSize: 12, color: "#a0c090", fontFamily: "'Cairo', sans-serif", marginTop: 16, marginBottom: 0 }}>تأكيد فوري · بدون رسوم إضافية · إلغاء مجاني قبل 24 ساعة</p>
+              </div>
             )}
           </div>
 
-          {/* Sidebar */}
-          <BookingSummary terrain={terrain} slot={slot} />
+          {/* Sidebar summary */}
+          <div className="res-summary">
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 18 }}>ملخص الحجز</div>
+              <div style={{ borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
+                <img src={terrain?.image} alt="" style={{ width: "100%", height: 120, objectFit: "cover" }} />
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#1a3d14", fontFamily: "'Cairo', sans-serif", marginBottom: 4 }}>{terrain?.name}</div>
+              <div style={{ fontSize: 12, color: "#5a8a50", fontFamily: "'Cairo', sans-serif", marginBottom: 16 }}>{terrain?.type} · {terrain?.size}</div>
+              <div style={{ borderTop: "1px solid #e8f5e0", paddingTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                {[
+                  { label: "التاريخ", value: todayLabel() },
+                  { label: "الوقت", value: slot?.label || "—", highlight: !slot },
+                  { label: "المدة", value: "ساعة واحدة" },
+                ].map(({ label, value, highlight }) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, color: "#5a8a50", fontFamily: "'Cairo', sans-serif" }}>{label}</span>
+                    <span style={{ fontSize: 13, color: highlight ? "#c0d4bc" : "#1a3d14", fontFamily: "'Cairo', sans-serif", fontWeight: 600 }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ borderTop: "1px solid #e8f5e0", marginTop: 14, paddingTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#2d6a21", fontFamily: "'Cairo', sans-serif" }}>المجموع</span>
+                <span style={{ fontSize: 26, fontWeight: 900, color: "#2d6a21", fontFamily: "'Cairo', sans-serif" }}>
+                  {terrain?.price} <span style={{ fontSize: 11, fontWeight: 400, color: "#5a8a50" }}>درهم</span>
+                </span>
+              </div>
+              <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 8 }}>
+                {(terrain?.features || []).map((f) => (
+                  <div key={f} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#5cb844", flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: "#5a8a50", fontFamily: "'Cairo', sans-serif" }}>{f}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 20, padding: "14px 16px", background: "#f0f7ee", borderRadius: 10, border: "1px solid #ddefd8" }}>
+                {["✓ تأكيد فوري", "✓ إلغاء مجاني 24س", "✓ بدون رسوم إضافية"].map(t => (
+                  <div key={t} style={{ fontSize: 12, color: "#2d6a21", fontFamily: "'Cairo', sans-serif", padding: "3px 0", fontWeight: 600 }}>{t}</div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-
       <Footer />
-      <Styles />
     </div>
-  );
-}
-
-// ─── All styles in one place ──────────────────────────────────────────────────
-function Styles() {
-  return (
-    <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap');
-
-      /* ── CSS Variables ── */
-      :root {
-        --green-dark:   #1a3d14;
-        --green-mid:    #2d6a21;
-        --green-light:  #5cb844;
-        --green-pale:   #f0f7ee;
-        --green-border: #c8e6c0;
-        --text-muted:   #5a8a50;
-        --text-hint:    #a0c090;
-        --bg-page:      #f4f8f3;
-        --radius-sm:    8px;
-        --radius-md:    14px;
-        --radius-lg:    20px;
-        --shadow-card:  0 2px 16px rgba(45,106,33,.07);
-      }
-
-      * { box-sizing: border-box; }
-
-      /* ── Page wrapper ── */
-      .res-page {
-        background: var(--bg-page);
-        min-height: 100vh;
-        font-family: 'Cairo', sans-serif;
-        direction: rtl;
-      }
-
-      .res-container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 110px 60px 80px;
-        direction: rtl;
-      }
-
-      /* ── Heading ── */
-      .res-heading { margin-bottom: 32px; }
-      .res-badge {
-        display: inline-block;
-        background: rgba(45,106,33,.08);
-        color: var(--green-mid);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 2px;
-        padding: 5px 16px;
-        border-radius: 4px;
-        border: 1px solid rgba(45,106,33,.18);
-        margin-bottom: 10px;
-      }
-      .res-title {
-        font-size: 36px;
-        font-weight: 900;
-        color: var(--green-dark);
-        margin: 0;
-      }
-
-      /* ── Stepper ── */
-      .stepper {
-        display: flex;
-        align-items: center;
-        background: #fff;
-        border: 1px solid var(--green-border);
-        border-radius: var(--radius-md);
-        padding: 14px 24px;
-        margin-bottom: 28px;
-        overflow-x: auto;
-        box-shadow: var(--shadow-card);
-        gap: 0;
-      }
-      .stepper-item {
-        display: flex;
-        align-items: center;
-        flex: 1;
-        min-width: 0;
-      }
-      .stepper-item:last-child { flex: none; }
-      .stepper-circle {
-        width: 32px; height: 32px;
-        border-radius: 50%;
-        border: 2px solid var(--green-border);
-        background: var(--green-pale);
-        display: flex; align-items: center; justify-content: center;
-        font-size: 13px; font-weight: 800; color: var(--text-hint);
-        flex-shrink: 0; transition: all .3s;
-      }
-      .stepper-circle.active {
-        background: linear-gradient(135deg, var(--green-mid), var(--green-light));
-        border-color: var(--green-light);
-        color: #fff;
-        box-shadow: 0 4px 12px rgba(45,106,33,.25);
-      }
-      .stepper-circle.done {
-        background: linear-gradient(135deg, var(--green-mid), var(--green-light));
-        border-color: var(--green-light);
-        color: #fff;
-      }
-      .stepper-label {
-        font-size: 13px; font-weight: 500;
-        color: var(--text-hint);
-        margin-right: 10px; white-space: nowrap;
-      }
-      .stepper-label.current { color: var(--green-mid); font-weight: 700; }
-      .stepper-line {
-        flex: 1; height: 2px;
-        background: #e0f0da;
-        margin: 0 12px;
-        min-width: 16px;
-        transition: background .3s;
-      }
-      .stepper-line.filled { background: var(--green-light); }
-
-      /* ── Layout grid ── */
-      .res-layout {
-        display: grid;
-        grid-template-columns: 1fr 340px;
-        gap: 28px;
-        align-items: start;
-      }
-
-      /* ── Panel (shared white card) ── */
-      .panel {
-        background: #fff;
-        border: 1px solid var(--green-border);
-        border-radius: var(--radius-lg);
-        padding: 32px;
-        box-shadow: var(--shadow-card);
-      }
-      .panel__title {
-        font-size: 22px; font-weight: 800; color: var(--green-dark);
-        margin: 0 0 20px;
-      }
-      .panel__sub {
-        color: var(--text-muted); font-size: 14px; margin: -12px 0 20px;
-      }
-      .panel__sub strong { color: var(--green-mid); }
-      .panel__actions {
-        display: flex; gap: 12px; margin-top: 28px;
-      }
-
-      /* ── Buttons ── */
-      .btn {
-        display: inline-flex; align-items: center; justify-content: center;
-        gap: 6px; padding: 13px 28px;
-        border-radius: 50px; font-size: 15px; font-weight: 700;
-        font-family: 'Cairo', sans-serif;
-        cursor: pointer; transition: all .2s; border: none; outline: none;
-      }
-      .btn:hover { transform: translateY(-2px); }
-      .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
-
-      .btn--primary {
-        background: linear-gradient(135deg, var(--green-mid), var(--green-light));
-        color: #fff;
-        box-shadow: 0 6px 20px rgba(45,106,33,.3);
-        font-size: 16px; font-weight: 800;
-      }
-      .btn--outline {
-        background: #fff; color: var(--text-muted);
-        border: 1.5px solid var(--green-border);
-      }
-      .btn--outline:hover { border-color: var(--green-light); }
-      .btn--ghost {
-        background: none; border: none; color: var(--text-hint); font-size: 13px;
-      }
-      .btn--full { width: 100%; }
-      .btn--cta { flex: 1; padding: 14px 44px; }
-      .btn--xs { padding: 6px 14px; font-size: 12px; }
-
-      /* ── Terrain grid ── */
-      .terrains-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 16px;
-      }
-      .terrain-card {
-        border: 2px solid var(--green-border);
-        border-radius: var(--radius-md);
-        overflow: hidden;
-        cursor: pointer;
-        transition: all .25s;
-        background: #fff;
-      }
-      .terrain-card:hover { box-shadow: 0 4px 20px rgba(45,106,33,.12); }
-      .terrain-card--active {
-        border-color: var(--green-light);
-        background: rgba(45,106,33,.04);
-        box-shadow: 0 4px 20px rgba(45,106,33,.15);
-        transform: translateY(-3px);
-      }
-      .terrain-card__img-wrap { position: relative; height: 130px; }
-      .terrain-card__img-wrap img { width: 100%; height: 100%; object-fit: cover; }
-      .terrain-card__check {
-        position: absolute; top: 10px; left: 10px;
-        width: 24px; height: 24px; border-radius: 50%;
-        background: var(--green-light);
-        display: flex; align-items: center; justify-content: center;
-        color: #fff; font-size: 13px; font-weight: 900;
-      }
-      .terrain-card__body { padding: 14px 16px; }
-      .terrain-card__name { font-size: 15px; font-weight: 800; color: var(--green-dark); }
-      .terrain-card__size { font-size: 12px; color: var(--text-muted); margin: 4px 0 8px; }
-      .terrain-card__tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-      .tag {
-        background: rgba(45,106,33,.07); border: 1px solid var(--green-border);
-        color: var(--green-mid); font-size: 10px; padding: 2px 8px; border-radius: 5px;
-      }
-      .terrain-card__price { font-size: 18px; font-weight: 900; color: var(--green-mid); }
-      .price-unit { font-size: 11px; font-weight: 400; color: var(--text-muted); }
-
-      /* ── Slots ── */
-      .slot-legend { display: flex; gap: 16px; margin-bottom: 16px; }
-      .slot-legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
-      .slot-legend-dot { width: 16px; height: 16px; border-radius: 4px; }
-
-      .slots-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-        gap: 10px;
-        margin-bottom: 28px;
-      }
-      .slot-btn {
-        position: relative;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        min-height: 56px; padding: 14px 6px;
-        border-radius: 10px; border: 1.5px solid var(--green-border);
-        background: #fff; color: var(--green-dark);
-        font-family: 'Cairo', sans-serif; font-size: 15px; font-weight: 700;
-        cursor: pointer; transition: all .2s;
-      }
-      .slot-btn:hover:not(:disabled) { border-color: var(--green-light); }
-      .slot-btn--active {
-        border-color: var(--green-light) !important;
-        background: rgba(45,106,33,.1) !important;
-        color: var(--green-mid) !important;
-        box-shadow: 0 2px 10px rgba(45,106,33,.2);
-      }
-      .slot-btn--taken { background: #f5f5f5; border-color: #eef5ec; color: #c0d4bc; cursor: not-allowed; }
-      .slot-time { font-size: 15px; font-weight: 700; }
-      .slot-taken-label {
-        position: absolute; inset: 0; border-radius: 9px;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 11px; color: #b0c8aa; background: rgba(245,245,245,.8); font-weight: 600;
-      }
-
-      /* ── Form ── */
-      .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
-      .field { margin-bottom: 18px; }
-      .field-label { display: block; font-size: 13px; font-weight: 700; color: var(--green-mid); margin-bottom: 7px; }
-      .field-label--opt { color: var(--text-hint); font-weight: 400; }
-      .field-input {
-        width: 100%; padding: 14px 18px;
-        border-radius: 10px; border: 1.5px solid var(--green-border);
-        background: #fff; font-size: 15px; font-family: 'Cairo', sans-serif;
-        color: var(--green-dark); outline: none; direction: rtl;
-        transition: border-color .2s, box-shadow .2s;
-      }
-      .field-input:focus { border-color: var(--green-light); box-shadow: 0 0 0 3px rgba(92,184,68,.15); }
-      .field-input--error { border-color: #e57373; background: #fff5f5; }
-      .field-error { font-size: 11px; color: #e57373; display: block; margin-top: 4px; }
-      textarea.field-input { resize: vertical; min-height: 90px; }
-
-      /* ── Confirm ── */
-      .confirm-stack { display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; }
-      .confirm-row {
-        display: flex; align-items: center; gap: 16px;
-        background: var(--green-pale); border: 1px solid var(--green-border);
-        border-radius: var(--radius-md); padding: 16px 20px;
-      }
-      .confirm-row__img { width: 72px; height: 50px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
-      .confirm-row__label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
-      .confirm-row__name { font-size: 16px; font-weight: 800; color: var(--green-dark); }
-      .confirm-row__sub  { font-size: 13px; color: var(--text-muted); }
-      .confirm-row__info { flex: 1; }
-      .confirm-personal {
-        background: var(--green-pale); border: 1px solid var(--green-border);
-        border-radius: var(--radius-md); padding: 16px 20px;
-      }
-      .confirm-personal__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-      .confirm-personal__title { font-size: 14px; font-weight: 700; color: var(--green-mid); }
-      .confirm-info-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #e8f5e0; }
-      .confirm-info-label { color: var(--text-muted); font-size: 13px; }
-      .confirm-info-value { color: var(--green-dark); font-size: 13px; font-weight: 600; }
-      .confirm-total {
-        display: flex; justify-content: space-between; align-items: center;
-        background: rgba(45,106,33,.06); border: 1.5px solid rgba(92,184,68,.4);
-        border-radius: var(--radius-md); padding: 18px 20px;
-      }
-      .confirm-total__label { font-size: 16px; font-weight: 700; color: var(--green-dark); }
-      .confirm-total__value { font-size: 28px; font-weight: 900; color: var(--green-mid); }
-      .confirm-total__unit { font-size: 13px; font-weight: 400; color: var(--text-muted); }
-      .confirm-note { text-align: center; font-size: 12px; color: var(--text-hint); margin: 16px 0 0; }
-
-      /* ── Summary sidebar ── */
-      .summary-card {
-        background: #fff;
-        border: 1px solid var(--green-border);
-        border-radius: var(--radius-lg);
-        padding: 24px;
-        box-shadow: var(--shadow-card);
-        position: sticky;
-        top: 100px;
-      }
-      .summary-card__title { font-size: 15px; font-weight: 800; color: var(--green-dark); margin-bottom: 18px; }
-      .summary-card__img-wrap { border-radius: 12px; overflow: hidden; margin-bottom: 16px; }
-      .summary-card__img-wrap img { width: 100%; height: 120px; object-fit: cover; display: block; }
-      .summary-card__terrain-name { font-size: 17px; font-weight: 800; color: var(--green-dark); margin-bottom: 4px; }
-      .summary-card__terrain-sub  { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
-      .summary-card__divider { height: 1px; background: #e8f5e0; margin: 0 0 14px; }
-      .summary-card__rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
-      .summary-card__row { display: flex; justify-content: space-between; }
-      .summary-card__row-label { font-size: 13px; color: var(--text-muted); }
-      .summary-card__row-value { font-size: 13px; color: var(--green-dark); font-weight: 600; }
-      .summary-card__row-value.muted { color: #c0d4bc; }
-      .summary-card__total-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
-      .summary-card__total-label { font-size: 14px; font-weight: 700; color: var(--green-mid); }
-      .summary-card__total-value { font-size: 26px; font-weight: 900; color: var(--green-mid); }
-      .summary-card__total-unit  { font-size: 11px; font-weight: 400; color: var(--text-muted); }
-      .summary-card__features { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
-      .summary-card__feature { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
-      .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green-light); flex-shrink: 0; }
-      .summary-card__badges { padding: 14px 16px; background: var(--green-pale); border-radius: 10px; border: 1px solid #ddefd8; }
-      .summary-badge { font-size: 12px; color: var(--green-mid); padding: 3px 0; font-weight: 600; }
-
-      /* ── Auth modal ── */
-      .modal-backdrop {
-        position: fixed; inset: 0; z-index: 2000;
-        display: flex; align-items: center; justify-content: center;
-        background: rgba(0,0,0,.55); backdrop-filter: blur(8px);
-        animation: fadeIn .3s ease;
-      }
-      .modal-box {
-        background: #fff; border-radius: 24px;
-        padding: 40px 36px; max-width: 400px; width: 90%;
-        box-shadow: 0 25px 80px rgba(0,0,0,.3);
-        text-align: center; direction: rtl;
-        animation: slideUp .4s cubic-bezier(.22,1,.36,1);
-        display: flex; flex-direction: column; gap: 10px;
-      }
-      .modal-icon { font-size: 36px; }
-      .modal-title { font-size: 22px; font-weight: 900; color: var(--green-dark); margin: 0; }
-      .modal-body  { font-size: 14px; color: var(--text-muted); line-height: 1.7; margin: 0; }
-      .modal-body strong { color: var(--green-mid); }
-
-      /* ── Boarding pass ticket ── */
-      .ticket-wrap {
-        background: #fff;
-        border-radius: 20px;
-        overflow: hidden;
-        border: 1px solid var(--green-border);
-        box-shadow: 0 8px 40px rgba(45,106,33,.13);
-        max-width: 480px;
-        margin: 24px auto;
-        font-family: 'Cairo', sans-serif;
-      }
-      .ticket-header {
-        background: linear-gradient(135deg, var(--green-mid), var(--green-light));
-        padding: 28px 32px;
-        color: #fff; text-align: center;
-      }
-      .ticket-header__label {
-        font-size: 11px; font-weight: 700; letter-spacing: 3px;
-        opacity: .85; text-transform: uppercase; margin-bottom: 8px;
-      }
-      .ticket-header__title { font-size: 28px; font-weight: 900; }
-      .ticket-header__sub   { font-size: 13px; opacity: .8; margin-top: 4px; }
-
-      /* Notch separator */
-      .ticket-notch {
-        display: flex; align-items: center;
-        position: relative; overflow: visible;
-        background: var(--bg-page);
-      }
-      .notch {
-        width: 24px; height: 24px; border-radius: 50%;
-        background: var(--bg-page); flex-shrink: 0;
-        margin-top: -12px; margin-bottom: -12px;
-        z-index: 1;
-      }
-      .notch--left  { margin-right: -12px; }
-      .notch--right { margin-left: -12px; }
-      .ticket-dashed-line {
-        flex: 1; border-top: 2px dashed var(--green-border);
-        background: #fff;
-      }
-
-      .ticket-body { background: #fff; padding: 24px 32px; }
-      .ticket-info-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 16px;
-        margin-bottom: 24px;
-      }
-      .ticket-info-item { display: flex; flex-direction: column; gap: 2px; }
-      .ticket-info-label { font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: .5px; }
-      .ticket-info-value { font-size: 14px; font-weight: 700; color: var(--green-dark); }
-
-      .ticket-qr-section {
-        display: flex; flex-direction: column; align-items: center;
-        border-top: 1px dashed var(--green-border); padding-top: 20px;
-      }
-      .ticket-qr-img {
-        width: 160px; height: 160px; border-radius: 12px;
-        border: 2px solid var(--green-border); background: #fff; padding: 6px;
-        margin-bottom: 8px;
-      }
-      .ticket-qr-hint { font-size: 11px; color: var(--text-muted); margin-bottom: 16px; }
-      .ticket-pin-wrap { text-align: center; }
-      .ticket-pin-label { font-size: 11px; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; }
-      .ticket-pin {
-        font-size: 36px; font-weight: 900; letter-spacing: 8px;
-        color: var(--green-mid); direction: ltr;
-        background: var(--green-pale); border: 2px dashed var(--green-light);
-        border-radius: 12px; padding: 12px 24px; display: inline-block;
-      }
-
-      .ticket-footer {
-        background: var(--green-pale);
-        border-top: 1px solid var(--green-border);
-        padding: 16px 32px; text-align: center;
-      }
-      .ticket-footer-badge { font-size: 16px; font-weight: 800; color: var(--green-mid); margin-bottom: 4px; }
-      .ticket-footer-note  { font-size: 11px; color: var(--text-muted); }
-
-      .ticket-share { padding: 20px 32px; background: #fff; border-top: 1px solid var(--green-border); }
-      .ticket-share-title { font-size: 13px; font-weight: 700; color: var(--green-mid); margin-bottom: 12px; text-align: center; }
-      .ticket-share-btns { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
-      .share-btn {
-        color: #fff; border: none; padding: 9px 16px; border-radius: 50px;
-        font-size: 12px; font-weight: 700; font-family: 'Cairo', sans-serif;
-        cursor: pointer; transition: all .2s;
-      }
-      .share-btn:hover { transform: translateY(-2px); }
-
-      /* ── Success screen ── */
-      .success-screen {
-        display: flex; flex-direction: column; align-items: center;
-        padding: 120px 16px 60px;
-        text-align: center;
-      }
-      .success-check {
-        width: 80px; height: 80px; border-radius: 50%;
-        background: linear-gradient(135deg, var(--green-mid), var(--green-light));
-        display: flex; align-items: center; justify-content: center;
-        font-size: 36px; color: #fff;
-        box-shadow: 0 8px 24px rgba(45,106,33,.3);
-        margin-bottom: 24px;
-      }
-      .success-title { font-size: 28px; font-weight: 900; color: var(--green-dark); margin: 0 0 12px; }
-      .success-sub   { color: var(--text-muted); font-size: 15px; line-height: 1.8; max-width: 460px; margin: 0 0 8px; }
-
-      /* ── Animations ── */
-      @keyframes fadeIn  { from { opacity: 0; }  to { opacity: 1; } }
-      @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-
-      /* ── Responsive: tablet ── */
-      @media (max-width: 960px) {
-        .res-layout {
-          grid-template-columns: 1fr;
-        }
-        .summary-card {
-          position: static;
-          order: -1;
-        }
-        .res-container { padding: 100px 24px 60px; }
-      }
-
-      /* ── Responsive: mobile ── */
-      @media (max-width: 600px) {
-        .res-container { padding: 88px 0 48px; }
-        .res-heading   { padding: 0 16px; }
-        .stepper       { margin: 0 16px 20px; padding: 12px 14px; }
-        .stepper-label { display: none; }
-
-        .res-layout { display: flex; flex-direction: column; }
-        .summary-card { margin: 0 16px; border-radius: var(--radius-md); }
-
-        .panel {
-          border-radius: 0; border-left: none; border-right: none;
-          padding: 24px 16px; box-shadow: none;
-        }
-
-        .terrains-grid {
-          display: flex; overflow-x: auto;
-          gap: 12px; padding-bottom: 8px;
-          scroll-snap-type: x mandatory;
-          -webkit-overflow-scrolling: touch;
-        }
-        .terrains-grid::-webkit-scrollbar { display: none; }
-        .terrain-card {
-          min-width: 82vw; flex-shrink: 0;
-          scroll-snap-align: center;
-        }
-        .terrain-card__img-wrap { height: 180px; }
-
-        .slots-grid {
-          grid-template-columns: repeat(2, 1fr);
-        }
-
-        .form-grid { grid-template-columns: 1fr; }
-
-        .confirm-row { flex-wrap: wrap; }
-        .confirm-row__img { width: 56px; height: 40px; }
-
-        .ticket-wrap { border-radius: 0; border-left: none; border-right: none; }
-        .ticket-info-grid { grid-template-columns: 1fr 1fr; }
-
-        .res-title { font-size: 26px; }
-      }
-    `}</style>
   );
 }
