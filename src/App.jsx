@@ -9,6 +9,13 @@ import Signup from "./pages/client/Signup";
 
 // Admin Pages
 import AdminLayout from "./layouts/AdminLayout";
+import Reservations from "./pages/admin/Reservations";
+import Dashboard from "./pages/admin/Dashboard";
+import Terrains from "./pages/admin/Terrains";
+import Reports from "./pages/admin/Reports";
+import Settings from "./pages/admin/Settings";
+import Clients from "./pages/admin/Clients";
+
 
 function App() {
   return (
@@ -21,7 +28,17 @@ function App() {
           <Route path="signup" element={<Signup />} />
         </Route>
 
-        <Route path="/admin" element={<AdminLayout />} />
+        {/* Admin Routes */}
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="reservations" element={<Reservations />} />
+          <Route path="terrains" element={<Terrains />} />
+          <Route path="reports" element={<Reports />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="users" element={<Clients />} />
+          
+        </Route>
+
       </Routes>
     </BrowserRouter>
   );
