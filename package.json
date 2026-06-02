@@ -10,13 +10,20 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tabler/icons-react": "^3.44.0",
     "@tailwindcss/vite": "^4.3.0",
     "axios": "^1.16.1",
+<<<<<<< HEAD
     "html2canvas": "^1.4.1",
+=======
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+>>>>>>> b904916e5cb7fd3703438f8af348ea7212483fb1
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.16.0",
-    "tailwindcss": "^4.3.0"
+    "tailwindcss": "^4.3.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
