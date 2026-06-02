@@ -10,106 +10,16 @@ import {
   IconSearch,
   IconChevronDown,
   IconCalendarEvent,
+ 
   IconTag,
   IconUsers,
   IconX,
+
   IconTrash,
 } from "@tabler/icons-react";
 
-// ─── Terrain images (SVG illustrations) ───────────────────────
-const TerrainImg = ({ type, status }) => {
 
-  
-  const isIndoor = type === "7 ضد 7";
-  const bgColor = isIndoor ? "#1e3a5f" : status === "في الصيانة" ? "#fef3c7" : "#d1fae5";
 
-  return (
-    <svg viewBox="0 0 400 200" width="100%" height="180" style={{ display: "block" }}>
-      {/* Sky / Background */}
-      <rect width="400" height="200" fill={bgColor} />
-
-      {status === "في الصيانة" ? (
-        <>
-          {/* Sandy field */}
-          <rect x="0" y="80" width="400" height="120" fill="#fbbf24" opacity="0.3" />
-          <rect x="20" y="90" width="360" height="100" rx="4" fill="none" stroke="#f59e0b" strokeWidth="2" strokeDasharray="8,4" />
-          {/* Cone */}
-          <polygon points="200,130 220,170 180,170" fill="#f97316" />
-          <rect x="175" y="168" width="50" height="8" rx="2" fill="#f97316" />
-          <line x1="185" y1="145" x2="215" y2="145" stroke="#fff" strokeWidth="3" />
-          <line x1="182" y1="155" x2="218" y2="155" stroke="#fff" strokeWidth="3" />
-          {/* Warning stripes */}
-          {[0,1,2,3,4,5].map(i => (
-            <rect key={i} x={i*70} y="85" width="35" height="8" fill="#f59e0b" opacity="0.6" />
-          ))}
-          {/* Goal */}
-          <rect x="30" y="100" width="60" height="35" rx="2" fill="none" stroke="#d1d5db" strokeWidth="2" />
-          <rect x="310" y="100" width="60" height="35" rx="2" fill="none" stroke="#d1d5db" strokeWidth="2" />
-        </>
-      ) : isIndoor ? (
-        <>
-          {/* Indoor stadium */}
-          <rect x="0" y="60" width="400" height="140" fill="#1e40af" opacity="0.4" />
-          <rect x="20" y="70" width="360" height="120" rx="4" fill="#1d4ed8" opacity="0.3" />
-          {/* Field lines */}
-          <rect x="30" y="80" width="340" height="100" rx="3" fill="none" stroke="#60a5fa" strokeWidth="2" />
-          <line x1="200" y1="80" x2="200" y2="180" stroke="#60a5fa" strokeWidth="1.5" />
-          <circle cx="200" cy="130" r="20" fill="none" stroke="#60a5fa" strokeWidth="1.5" />
-          <rect x="30" y="100" width="50" height="60" rx="2" fill="none" stroke="#93c5fd" strokeWidth="1.5" />
-          <rect x="320" y="100" width="50" height="60" rx="2" fill="none" stroke="#93c5fd" strokeWidth="1.5" />
-          {/* Stadium lights */}
-          {[60, 200, 340].map(x => (
-            <g key={x}>
-              <line x1={x} y1="20" x2={x} y2="70" stroke="#fbbf24" strokeWidth="2" />
-              <circle cx={x} cy="15" r="6" fill="#fef08a" />
-            </g>
-          ))}
-          {/* Goals */}
-          <rect x="22" y="108" width="8" height="44" rx="1" fill="#93c5fd" />
-          <rect x="30" y="108" width="1" height="44" fill="#93c5fd" />
-          <rect x="370" y="108" width="8" height="44" rx="1" fill="#93c5fd" />
-          <rect x="369" y="108" width="1" height="44" fill="#93c5fd" />
-        </>
-      ) : (
-        <>
-          {/* Outdoor field */}
-          <rect x="0" y="50" width="400" height="150" fill="#16a34a" opacity="0.2" />
-          {/* Grass stripes */}
-          {[0,1,2,3,4].map(i => (
-            <rect key={i} x={i * 80} y="50" width="40" height="150" fill="#15803d" opacity="0.15" />
-          ))}
-          {/* Field */}
-          <rect x="20" y="60" width="360" height="120" rx="4" fill="none" stroke="#4ade80" strokeWidth="2" />
-          <line x1="200" y1="60" x2="200" y2="180" stroke="#4ade80" strokeWidth="1.5" />
-          <circle cx="200" cy="120" r="22" fill="none" stroke="#4ade80" strokeWidth="1.5" />
-          <circle cx="200" cy="120" r="2" fill="#4ade80" />
-          {/* Goal areas */}
-          <rect x="20" y="88" width="45" height="64" rx="2" fill="none" stroke="#86efac" strokeWidth="1.5" />
-          <rect x="335" y="88" width="45" height="64" rx="2" fill="none" stroke="#86efac" strokeWidth="1.5" />
-          {/* Goals */}
-          <rect x="14" y="100" width="6" height="40" fill="#e5e7eb" rx="1" />
-          <rect x="20" y="100" width="1" height="40" fill="#e5e7eb" />
-          <rect x="380" y="100" width="6" height="40" fill="#e5e7eb" rx="1" />
-          <rect x="379" y="100" width="1" height="40" fill="#e5e7eb" />
-          {/* Corner flags */}
-          {[[20,60],[380,60],[20,180],[380,180]].map(([x,y],i) => (
-            <g key={i}>
-              <line x1={x} y1={y} x2={x} y2={y-14} stroke="#fbbf24" strokeWidth="1.5" />
-              <polygon points={`${x},${y-14} ${x+8},${y-10} ${x},${y-6}`} fill="#fbbf24" />
-            </g>
-          ))}
-          {/* Trees */}
-          {[0,370].map(x => (
-            <g key={x}>
-              <rect x={x+10} y="30" width="4" height="20" fill="#92400e" />
-              <circle cx={x+12} cy="25" r="12" fill="#15803d" opacity="0.7" />
-            </g>
-          ))}
-        </>
-      )}
-    </svg>
-  );
-};
 
 // ─── Sub Components ────────────────────────────────────────────
 const Modal = ({ children, onClose }) => (
@@ -198,12 +108,12 @@ const ModalForm = ({ isAdd, form, setForm, selectedTerrain, saveAdd, saveEdit, s
 
 // ─── Initial Data ─────────────────────────────────────────────
 const initialTerrains = [
-  { id: 1, name: "ملعب A", type: "5 ضد 5", price: "200", capacity: "10", hours: "08:00 - 23:00", description: "ملعب احترافي بعشب اصطناعي الجيل الخامس مع إضاءة LED", status: "في الصيانة", bookingsToday: 14, occupancy: 35 },
-  { id: 2, name: "ملعب B", type: "7 ضد 7", price: "250", capacity: "14", hours: "08:00 - 23:00", description: "ملعب متكامل بمرافق حديثة ومدرجات للمشجعين", status: "نشط", bookingsToday: 11, occupancy: 68 },
-  { id: 3, name: "ملعب C", type: "11 ضد 11", price: "300", capacity: "22", hours: "08:00 - 23:00", description: "ملعب كبير مناسب للمباريات الرسمية والبطولات", status: "نشط", bookingsToday: 6, occupancy: 70 },
+  { id: 1, name: "ملعب A", type: "5 ضد 5", price: "200", capacity: "10", hours: "08:00 - 23:00", description: "ملعب احترافي بعشب اصطناعي الجيل الخامس مع إضاءة LED", status: "في الصيانة", bookingsToday: 14, occupancy: 35, image: "https://images.unsplash.com/photo-1575361204480-aadea25e6e68?w=800&q=80" },
+  { id: 2, name: "ملعب B", type: "7 ضد 7", price: "250", capacity: "14", hours: "08:00 - 23:00", description: "ملعب متكامل بمرافق حديثة ومدرجات للمشجعين", status: "نشط", bookingsToday: 11, occupancy: 68, image: "https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=800&q=80" },
+  { id: 3, name: "ملعب C", type: "11 ضد 11", price: "300", capacity: "22", hours: "08:00 - 23:00", description: "ملعب كبير مناسب للمباريات الرسمية والبطولات", status: "نشط", bookingsToday: 6, occupancy: 70, image: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=800&q=80" },
 ];
 
-const emptyForm = { name: "", type: "5 ضد 5", price: "", capacity: "", hours: "08:00 - 23:00", description: "", status: "نشط" };
+const emptyForm = { name: "", type: "5 ضد 5", price: "", capacity: "", hours: "08:00 - 23:00", description: "", status: "نشط", image: "" };
 
 const Terrains = () => {
   const [terrains, setTerrains] = useState(initialTerrains);
@@ -218,7 +128,7 @@ const Terrains = () => {
   const [form, setForm] = useState(emptyForm);
 
   const font = "'Cairo', sans-serif";
-  
+ 
 
   const inputStyle = {
     width: "100%", padding: "9px 12px", borderRadius: 8,
@@ -380,8 +290,26 @@ const Terrains = () => {
           <div key={t.id} className="tc" style={{ background: "#fff", borderRadius: 16, border: "1px solid #e5e7eb", overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
 
             {/* Image */}
-            <div style={{ position: "relative" }}>
-              <TerrainImg type={t.type} status={t.status} />
+            <div style={{ position: "relative", height: 180, overflow: "hidden" }}>
+              {t.image ? (
+                <img
+                  src={t.image}
+                  alt={t.name}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  onError={e => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }}
+                />
+              ) : null}
+              <div style={{
+                width: "100%", height: "100%",
+                background: t.type === "7 ضد 7" ? "#1e3a5f" : t.status === "في الصيانة" ? "#fef3c7" : "#dcfce7",
+                display: t.image ? "none" : "flex",
+                alignItems: "center", justifyContent: "center",
+                fontSize: 48,
+              }}>⚽</div>
+              {/* Dark overlay for maintenance */}
+              {t.status === "في الصيانة" && (
+                <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)" }} />
+              )}
               <div style={{ position: "absolute", top: 10, right: 10 }}>
                 {statusBadge(t.status)}
               </div>
